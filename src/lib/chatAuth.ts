@@ -17,7 +17,7 @@ export async function chatLogin(email: string, password: string): Promise<{ toke
   const base = chatBaseUrl();
   let res: Response;
   try {
-    res = await fetch(`${base}/auth/login`, {
+    res = await fetch(`${base}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password })
@@ -40,7 +40,7 @@ export async function chatMe(token: string): Promise<ChatUser> {
   const base = chatBaseUrl();
   let res: Response;
   try {
-    res = await fetch(`${base}/auth/me`, {
+    res = await fetch(`${base}/api/auth/me`, {
       headers: { Authorization: `Bearer ${token}` }
     });
   } catch {
