@@ -55,22 +55,18 @@ function resolveBallCollision(a: BallState, b: BallState): boolean {
   return true;
 }
 
-function isNearPocketLaneY(y: number, table: TableConfig): boolean {
-  const mouth = table.pocketRadius * PHYSICS.pocketMouthScale;
-  return (
-    Math.abs(y - table.rail) <= mouth ||
-    Math.abs(y - table.height / 2) <= mouth ||
-    Math.abs(y - (table.height - table.rail)) <= mouth
-  );
+function inPocketWindow(pos: number, centers: number[], halfOpen: number): boolean {
+  return centers.some((c) => Math.abs(pos - c) <= halfOpen);
 }
 
-function isNearPocketLaneX(x: number, table: TableConfig): boolean {
-  const mouth = table.pocketRadius * PHYSICS.pocketMouthScale;
-  return (
-    Math.abs(x - table.rail) <= mouth ||
-    Math.abs(x - table.width / 2) <= mouth ||
-    Math.abs(x - (table.width - table.rail)) <= mouth
-  );
+function hasLeftRightRailOpening(y: number, table: TableConfig): boolean {
+  const halfOpen = table.pocketRadius * 0.72;
+  return inPocketWindow(y, [table.rail, table.height - table.rail], halfOpen);
+}
+
+function hasTopBottomRailOpening(x: number, table: TableConfig): boolean {
+  const halfOpen = table.pocketRadius * 0.78;
+  return inPocketWindow(x, [table.rail, table.width / 2, table.width - table.rail], halfOpen);
 }
 
 function resolveCushion(ball: BallState, table: TableConfig): boolean {
@@ -81,24 +77,24 @@ function resolveCushion(ball: BallState, table: TableConfig): boolean {
   const bottom = table.height - table.rail - ball.radius;
   let hit = false;
 
-  if (ball.pos.x < left && !isNearPocketLaneY(ball.pos.y, table)) {
+  if (ball.pos.x < left && !hasLeftRightRailOpening(ball.pos.y, table)) {
     ball.pos.x = left;
     ball.vel.x = Math.abs(ball.vel.x) * PHYSICS.restitutionCushion;
     ball.vel.y *= PHYSICS.railFrictionOnImpact;
     hit = true;
-  } else if (ball.pos.x > right && !isNearPocketLaneY(ball.pos.y, table)) {
+  } else if (ball.pos.x > right && !hasLeftRightRailOpening(ball.pos.y, table)) {
     ball.pos.x = right;
     ball.vel.x = -Math.abs(ball.vel.x) * PHYSICS.restitutionCushion;
     ball.vel.y *= PHYSICS.railFrictionOnImpact;
     hit = true;
   }
 
-  if (ball.pos.y < top && !isNearPocketLaneX(ball.pos.x, table)) {
+  if (ball.pos.y < top && !hasTopBottomRailOpening(ball.pos.x, table)) {
     ball.pos.y = top;
     ball.vel.y = Math.abs(ball.vel.y) * PHYSICS.restitutionCushion;
     ball.vel.x *= PHYSICS.railFrictionOnImpact;
     hit = true;
-  } else if (ball.pos.y > bottom && !isNearPocketLaneX(ball.pos.x, table)) {
+  } else if (ball.pos.y > bottom && !hasTopBottomRailOpening(ball.pos.x, table)) {
     ball.pos.y = bottom;
     ball.vel.y = -Math.abs(ball.vel.y) * PHYSICS.restitutionCushion;
     ball.vel.x *= PHYSICS.railFrictionOnImpact;

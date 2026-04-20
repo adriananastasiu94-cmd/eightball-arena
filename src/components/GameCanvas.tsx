@@ -3,6 +3,7 @@
 import { PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BallState, MatchState, ShotInput } from "@/game/types";
 import { ARENA_THEME } from "@/game/rendering/theme";
+import { CueStyle, TableSkin } from "@/game/rendering/customization";
 
 type Props = {
   state: MatchState | null;
@@ -12,6 +13,8 @@ type Props = {
   assistStrength: number;
   shotPower?: number;
   onShotPowerChange?: (nextPower: number) => void;
+  cueStyle?: CueStyle;
+  tableSkin?: TableSkin;
   replay: { id: string; frames: BallState[][]; fps: number } | null;
   inputLocked?: boolean;
   lockLabel?: string | null;
@@ -34,6 +37,8 @@ export function GameCanvas({
   assistStrength,
   shotPower,
   onShotPowerChange,
+  cueStyle,
+  tableSkin,
   replay,
   inputLocked = false,
   lockLabel = null,
@@ -44,6 +49,23 @@ export function GameCanvas({
   const [aim, setAim] = useState<AimState>({ active: false, angle: 0, power: 0.35 });
   const [replayProgress, setReplayProgress] = useState(0);
   const displayPower = shotPower ?? aim.power;
+  const activeCue = cueStyle ?? {
+    id: "default",
+    name: "Default",
+    butt: ARENA_THEME.cueStick,
+    shaft: "#e8d4a8",
+    tip: "#4f5963",
+    accent: "#f2cf7a"
+  };
+  const activeTable = tableSkin ?? {
+    id: "default",
+    name: "Default",
+    felt: ARENA_THEME.tableFelt,
+    rail: ARENA_THEME.railWood,
+    pocket: ARENA_THEME.pocket,
+    bgTop: BG_GRAD[0],
+    bgBottom: BG_GRAD[1]
+  };
 
   const isMyTurn = useMemo(() => {
     if (!state || !myUserId) return false;
@@ -128,8 +150,8 @@ export function GameCanvas({
       ctx.clearRect(0, 0, width, height);
 
       const bg = ctx.createLinearGradient(0, 0, 0, height);
-      bg.addColorStop(0, BG_GRAD[0]);
-      bg.addColorStop(1, BG_GRAD[1]);
+      bg.addColorStop(0, activeTable.bgTop);
+      bg.addColorStop(1, activeTable.bgBottom);
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, width, height);
 
@@ -137,10 +159,10 @@ export function GameCanvas({
       ctx.translate(ox, oy);
       ctx.scale(scale, scale);
 
-      ctx.fillStyle = ARENA_THEME.railWood;
+      ctx.fillStyle = activeTable.rail;
       ctx.fillRect(0, 0, state.table.width, state.table.height);
 
-      ctx.fillStyle = ARENA_THEME.tableFelt;
+      ctx.fillStyle = activeTable.felt;
       ctx.fillRect(
         state.table.rail,
         state.table.rail,
@@ -148,7 +170,7 @@ export function GameCanvas({
         state.table.height - state.table.rail * 2
       );
 
-      const pocketColor = ARENA_THEME.pocket;
+      const pocketColor = activeTable.pocket;
       const pockets = [
         [state.table.rail, state.table.rail],
         [state.table.width / 2, state.table.rail],
@@ -177,7 +199,7 @@ export function GameCanvas({
         ctx.stroke();
         ctx.setLineDash([]);
 
-        ctx.strokeStyle = ARENA_THEME.cueStick;
+        ctx.strokeStyle = activeCue.butt;
         ctx.lineWidth = 6;
         ctx.beginPath();
         ctx.moveTo(cue.pos.x - Math.cos(aim.angle) * 26, cue.pos.y - Math.sin(aim.angle) * 26);
@@ -186,19 +208,53 @@ export function GameCanvas({
           cue.pos.y - Math.sin(aim.angle) * (220 + displayPower * 40)
         );
         ctx.stroke();
+
+        ctx.strokeStyle = activeCue.shaft;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(cue.pos.x - Math.cos(aim.angle) * 30, cue.pos.y - Math.sin(aim.angle) * 30);
+        ctx.lineTo(
+          cue.pos.x - Math.cos(aim.angle) * (190 + displayPower * 30),
+          cue.pos.y - Math.sin(aim.angle) * (190 + displayPower * 30)
+        );
+        ctx.stroke();
       }
 
       const renderBalls = interpolatedReplayBalls ?? state.balls;
       for (const ball of renderBalls) {
         if (ball.pocketed) continue;
-        ctx.beginPath();
-        if (ball.kind === "cue") ctx.fillStyle = ARENA_THEME.cue;
-        else if (ball.kind === "eight") ctx.fillStyle = ARENA_THEME.eight;
-        else if (ball.kind === "solid") ctx.fillStyle = ARENA_THEME.solid;
-        else ctx.fillStyle = ARENA_THEME.stripe;
+        const baseColor = colorForBall(ball.number);
+        const isCue = ball.kind === "cue";
+        const isEight = ball.kind === "eight";
+        const isStripe = ball.kind === "stripe";
 
+        ctx.beginPath();
         ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
+        ctx.fillStyle = isCue ? ARENA_THEME.cue : isEight ? ARENA_THEME.eight : isStripe ? "#f3f8ff" : baseColor;
         ctx.fill();
+
+        if (isStripe) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.fillStyle = baseColor;
+          const bandH = ball.radius * 0.96;
+          ctx.fillRect(ball.pos.x - ball.radius, ball.pos.y - bandH / 2, ball.radius * 2, bandH);
+          ctx.restore();
+        }
+
+        if (!isCue) {
+          ctx.fillStyle = "#ffffff";
+          ctx.beginPath();
+          ctx.arc(ball.pos.x, ball.pos.y, Math.max(2.2, ball.radius * 0.42), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#11161f";
+          ctx.font = `${Math.max(8, ball.radius * 0.95)}px sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(String(ball.number), ball.pos.x, ball.pos.y + 0.5);
+        }
 
         const shine = ctx.createRadialGradient(ball.pos.x - 4, ball.pos.y - 4, 0, ball.pos.x, ball.pos.y, ball.radius);
         shine.addColorStop(0, "rgba(255,255,255,0.7)");
@@ -215,7 +271,7 @@ export function GameCanvas({
     draw();
     window.addEventListener("resize", draw);
     return () => window.removeEventListener("resize", draw);
-  }, [state, aim, isMyTurn, assistStrength, interpolatedReplayBalls, displayPower]);
+  }, [state, aim, isMyTurn, assistStrength, interpolatedReplayBalls, displayPower, activeCue, activeTable]);
 
   const pointerToTable = (e: PointerEvent): { x: number; y: number } | null => {
     if (!state) return null;
@@ -313,4 +369,26 @@ export function GameCanvas({
       )}
     </div>
   );
+}
+
+function colorForBall(number: number): string {
+  const n = number >= 9 ? number - 8 : number;
+  switch (n) {
+    case 1:
+      return "#f8cf3d";
+    case 2:
+      return "#2f74df";
+    case 3:
+      return "#d4453e";
+    case 4:
+      return "#7b43c4";
+    case 5:
+      return "#ef8732";
+    case 6:
+      return "#2a8a4e";
+    case 7:
+      return "#7a1e1e";
+    default:
+      return ARENA_THEME.solid;
+  }
 }

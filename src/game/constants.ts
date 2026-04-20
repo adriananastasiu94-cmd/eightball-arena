@@ -10,17 +10,17 @@ export const TABLE: TableConfig = {
 
 export const PHYSICS = {
   stepHz: 120,
-  frictionPerSecond: 0.8,
-  minVelocity: 3.2,
+  frictionPerSecond: 0.68,
+  minVelocity: 5,
   restitutionBall: 0.955,
-  restitutionCushion: 0.83,
-  railFrictionOnImpact: 0.985,
+  restitutionCushion: 0.8,
+  railFrictionOnImpact: 0.96,
   pocketCaptureScale: 0.82,
-  pocketMouthScale: 1.22,
-  pocketPullStrength: 22,
+  pocketMouthScale: 1.08,
+  pocketPullStrength: 14,
   maxShotSpeed: 1700,
   maxPower: 1,
-  settleFrames: 16
+  settleFrames: 18
 };
 
 export const NETWORK = {

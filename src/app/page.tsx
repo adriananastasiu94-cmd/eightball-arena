@@ -10,6 +10,7 @@ import { MatchState, PlayerState, ShotInput } from "@/game/types";
 import { createMatchState } from "@/game/state";
 import { applyCueImpulse, simulateShot } from "@/game/physics/engine";
 import { adjudicateShot, applyOutcomeToTurn } from "@/game/rules/eightBallRules";
+import { CUE_STYLES, TABLE_SKINS } from "@/game/rendering/customization";
 
 type Me = {
   id: string;
@@ -29,6 +30,8 @@ export default function HomePage() {
   const [me, setMe] = useState<Me | null>(null);
   const [assistStrength, setAssistStrength] = useState(0.65);
   const [shotPower, setShotPower] = useState(0.42);
+  const [cueIndex, setCueIndex] = useState(0);
+  const [tableIndex, setTableIndex] = useState(0);
   const [mode, setMode] = useState<"online" | "sandbox">("online");
   const [localState, setLocalState] = useState<MatchState | null>(null);
   const [localReplay, setLocalReplay] = useState<{ id: string; frames: MatchState["balls"][]; fps: number } | null>(null);
@@ -165,7 +168,7 @@ export default function HomePage() {
                 ? "Join queue to start a match"
                 : "Sandbox ready"}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <label className="text-xs uppercase tracking-wide text-white/60">Aim Assist</label>
             <input
               type="range"
@@ -175,6 +178,30 @@ export default function HomePage() {
               value={assistStrength}
               onChange={(e) => setAssistStrength(Number(e.target.value))}
             />
+            <label className="ml-2 text-xs uppercase tracking-wide text-white/60">Cue</label>
+            <select
+              value={cueIndex}
+              onChange={(e) => setCueIndex(Number(e.target.value))}
+              className="rounded bg-white/10 px-2 py-1 text-xs text-white"
+            >
+              {CUE_STYLES.map((cue, idx) => (
+                <option key={cue.id} value={idx} className="bg-slate-900 text-white">
+                  {cue.name}
+                </option>
+              ))}
+            </select>
+            <label className="ml-2 text-xs uppercase tracking-wide text-white/60">Table</label>
+            <select
+              value={tableIndex}
+              onChange={(e) => setTableIndex(Number(e.target.value))}
+              className="rounded bg-white/10 px-2 py-1 text-xs text-white"
+            >
+              {TABLE_SKINS.map((skin, idx) => (
+                <option key={skin.id} value={idx} className="bg-slate-900 text-white">
+                  {skin.name}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -186,6 +213,8 @@ export default function HomePage() {
           assistStrength={assistStrength}
           shotPower={shotPower}
           onShotPowerChange={setShotPower}
+          cueStyle={CUE_STYLES[cueIndex]}
+          tableSkin={TABLE_SKINS[tableIndex]}
           replay={mode === "online" ? socket.replay : localReplay}
           inputLocked={mode === "online" ? socket.shotLocked : Boolean(localReplay)}
           lockLabel={mode === "online" ? "Waiting for shot result..." : "Playing shot..."}
