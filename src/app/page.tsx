@@ -351,33 +351,18 @@ export default function HomePage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-4 p-3 md:p-6">
-      <div className="rounded-2xl border border-white/10 bg-black/30 p-3 shadow-glow">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm font-semibold text-white">Freemium Progress</div>
-          <div className="flex items-center gap-3 text-xs text-white/85">
-            <span className="rounded bg-amber-400/20 px-2 py-1 text-amber-200">Coins: {(me.stats?.coins ?? 0).toLocaleString()}</span>
-            <span className="rounded bg-emerald-400/20 px-2 py-1 text-emerald-200">Cash: {(me.stats?.cash ?? 0).toLocaleString()}</span>
-            <span className="rounded bg-cyan-400/20 px-2 py-1 text-cyan-200">XP: {xp.toLocaleString()}</span>
-            <span className="rounded bg-indigo-400/20 px-2 py-1 text-indigo-200">Level {level}</span>
-          </div>
-        </div>
-        <div className="h-3 overflow-hidden rounded-full bg-white/10">
-          <div className="h-full bg-gradient-to-r from-cyan-400 to-indigo-500" style={{ width: `${Math.round(xpProgress * 100)}%` }} />
-        </div>
-      </div>
-
-      <header className="rounded-2xl border border-white/10 bg-black/25 p-4 shadow-glow">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+    <main className="mx-auto min-h-screen w-full max-w-[1600px] px-2 pb-6 pt-2 md:px-4">
+      <header className="sticky top-2 z-30 rounded-xl border border-white/10 bg-[#071622]/90 px-3 py-2 shadow-glow backdrop-blur md:px-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h1 className="text-xl font-semibold text-white">Eightball Arena</h1>
-            <p className="text-sm text-white/70">Welcome back, {me.username}.</p>
+            <h1 className="text-base font-semibold text-white md:text-lg">Eightball Arena</h1>
+            <p className="text-xs text-white/65">Welcome back, {me.username}</p>
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => { setMode("online"); arenaAudio.uiTap(); }} className={`rounded-lg px-3 py-2 text-sm ${mode === "online" ? "bg-brass text-slate" : "bg-white/10 text-white"}`}>
+          <div className="flex flex-wrap gap-1.5">
+            <button onClick={() => { setMode("online"); arenaAudio.uiTap(); }} className={`rounded-md px-2.5 py-1.5 text-xs md:text-sm ${mode === "online" ? "bg-brass text-slate" : "bg-white/10 text-white"}`}>
               Online 1v1
             </button>
-            <button onClick={() => { setMode("sandbox"); arenaAudio.uiTap(); }} className={`rounded-lg px-3 py-2 text-sm ${mode === "sandbox" ? "bg-brass text-slate" : "bg-white/10 text-white"}`}>
+            <button onClick={() => { setMode("sandbox"); arenaAudio.uiTap(); }} className={`rounded-md px-2.5 py-1.5 text-xs md:text-sm ${mode === "sandbox" ? "bg-brass text-slate" : "bg-white/10 text-white"}`}>
               Sandbox
             </button>
             <button
@@ -386,102 +371,95 @@ export default function HomePage() {
                 window.localStorage.removeItem(SESSION_CACHE_KEY);
                 setMe(null);
               }}
-              className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white"
+              className="rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-white md:text-sm"
             >
               Logout
             </button>
           </div>
         </div>
-
-        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-5">
-          <Stat label="W/L" value={`${me.stats?.wins ?? 0}/${me.stats?.losses ?? 0}`} />
-          <Stat label="Matches" value={`${me.stats?.matchesPlayed ?? 0}`} />
-          <Stat label="Rating" value={`${me.stats?.rating ?? 1000}`} />
-          <Stat label="Solids" value={`${solidsRemaining}`} />
-          <Stat label="Stripes" value={`${stripesRemaining}`} />
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-white/85 md:text-xs">
+          <span className="rounded bg-amber-400/20 px-2 py-1 text-amber-200">Coins: {(me.stats?.coins ?? 0).toLocaleString()}</span>
+          <span className="rounded bg-emerald-400/20 px-2 py-1 text-emerald-200">Cash: {(me.stats?.cash ?? 0).toLocaleString()}</span>
+          <span className="rounded bg-cyan-400/20 px-2 py-1 text-cyan-200">XP: {xp.toLocaleString()}</span>
+          <span className="rounded bg-indigo-400/20 px-2 py-1 text-indigo-200">Level {level}</span>
+          <div className="h-2 min-w-[150px] flex-1 overflow-hidden rounded-full bg-white/10 md:min-w-[220px]">
+            <div className="h-full bg-gradient-to-r from-cyan-400 to-indigo-500" style={{ width: `${Math.round(xpProgress * 100)}%` }} />
+          </div>
         </div>
-        {sessionWarning && <div className="mt-3 rounded-lg border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">{sessionWarning}</div>}
+        {sessionWarning && <div className="mt-2 rounded-lg border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">{sessionWarning}</div>}
       </header>
 
-      <section className="rounded-2xl border border-white/10 bg-black/20 p-4">
-        {currentState && (
-          <div className="mb-3 rounded-xl border border-white/10 bg-black/20 p-3">
-            <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
-              <Stat label="Turn" value={currentState.players[currentState.currentTurn]?.username ?? "-"} />
-              <Stat
-                label="Group"
-                value={`P1: ${groupLabel(currentState.players[0].group)} | P2: ${groupLabel(currentState.players[1].group)}`}
-              />
-              <Stat label="Shots" value={`${currentState.shotCount}`} />
-              <Stat label="Balls Left" value={`${ballsLeft}`} />
-            </div>
-            <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-              {currentState.players.map((p, idx) => (
-                <div
-                  key={p.userId}
-                  className="rounded-xl p-[2px]"
-                  style={
-                    idx === currentState.currentTurn && !currentState.shotInProgress && currentState.phase !== "round_end"
-                      ? {
-                          background: `conic-gradient(from -90deg, rgba(34,211,238,0.9) 0deg ${
-                            Math.max(0, Math.min(360, (activeRemainingMs / shotClockMs) * 360))
-                          }deg, rgba(34,211,238,0.18) ${
-                            Math.max(0, Math.min(360, (activeRemainingMs / shotClockMs) * 360))
-                          }deg 360deg)`,
-                          boxShadow: "0 0 18px rgba(34,211,238,0.35)"
-                        }
-                      : undefined
-                  }
-                >
-                  <div
-                    className={`rounded-lg border px-3 py-2 text-sm ${idx === currentState.currentTurn ? "border-cyan-300/50 bg-cyan-500/10 text-cyan-100" : "border-white/10 bg-white/5 text-white/85"}`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-semibold">
-                        {p.username} ({groupLabel(p.group)})
-                      </div>
-                      <div className="text-[11px] text-white/80">
-                        Clock:{" "}
-                        {idx === currentState.currentTurn && !currentState.shotInProgress && currentState.phase !== "round_end"
-                          ? `${Math.ceil(activeRemainingMs / 1000)}s`
-                          : "30s"}
-                      </div>
-                    </div>
-                    <div className="text-xs">Can shoot 8: {canShootEight(currentState, idx) ? "Yes" : "No"}</div>
-                    <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-white/80">
-                      <span>W/L: {p.profile?.wins ?? 0}/{p.profile?.losses ?? 0}</span>
-                      <span>Ratio: {ratioText(p.profile?.wins ?? 0, p.profile?.losses ?? 0)}</span>
-                      <span>Level: {p.profile?.level ?? 1}</span>
-                      <span>Games: {p.profile?.matchesPlayed ?? 0}</span>
-                      <span>Region: {p.profile?.region ?? "Global"}</span>
-                      <span>Timeouts: {currentState.timeoutStrikes[idx]}/3</span>
-                    </div>
+      <div className="mt-3 grid items-start gap-3 xl:grid-cols-[minmax(230px,1fr)_minmax(760px,1080px)_minmax(230px,1fr)]">
+        <aside className="hidden xl:sticky xl:top-24 xl:block">
+          {currentState && (
+            <PlayerProfileCard
+              player={currentState.players[0]}
+              group={groupLabel(currentState.players[0].group)}
+              canShoot8={canShootEight(currentState, 0)}
+              timeouts={currentState.timeoutStrikes[0]}
+              isActive={0 === currentState.currentTurn && !currentState.shotInProgress && currentState.phase !== "round_end"}
+              arcDeg={Math.max(0, Math.min(360, (activeRemainingMs / shotClockMs) * 360))}
+              remainingSec={Math.max(0, Math.ceil(activeRemainingMs / 1000))}
+            />
+          )}
+        </aside>
+
+        <section className="rounded-2xl border border-white/10 bg-black/20 p-3 md:p-4">
+          {currentState && (
+            <div className="mb-3 space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
+              <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
+                <Stat label="Turn" value={currentState.players[currentState.currentTurn]?.username ?? "-"} />
+                <Stat
+                  label="Group"
+                  value={`P1: ${groupLabel(currentState.players[0].group)} | P2: ${groupLabel(currentState.players[1].group)}`}
+                />
+                <Stat label="Shots" value={`${currentState.shotCount}`} />
+                <Stat label="Balls Left" value={`${ballsLeft}`} />
+              </div>
+
+              <div className="grid gap-2 xl:hidden md:grid-cols-2">
+                <PlayerProfileCard
+                  player={currentState.players[0]}
+                  group={groupLabel(currentState.players[0].group)}
+                  canShoot8={canShootEight(currentState, 0)}
+                  timeouts={currentState.timeoutStrikes[0]}
+                  isActive={0 === currentState.currentTurn && !currentState.shotInProgress && currentState.phase !== "round_end"}
+                  arcDeg={Math.max(0, Math.min(360, (activeRemainingMs / shotClockMs) * 360))}
+                  remainingSec={Math.max(0, Math.ceil(activeRemainingMs / 1000))}
+                />
+                <PlayerProfileCard
+                  player={currentState.players[1]}
+                  group={groupLabel(currentState.players[1].group)}
+                  canShoot8={canShootEight(currentState, 1)}
+                  timeouts={currentState.timeoutStrikes[1]}
+                  isActive={1 === currentState.currentTurn && !currentState.shotInProgress && currentState.phase !== "round_end"}
+                  arcDeg={Math.max(0, Math.min(360, (activeRemainingMs / shotClockMs) * 360))}
+                  remainingSec={Math.max(0, Math.ceil(activeRemainingMs / 1000))}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                  <div className="mb-1 text-xs text-white/75">Solids Left</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[1, 2, 3, 4, 5, 6, 7].map((n) =>
+                      currentState.balls.some((b) => b.number === n && !b.pocketed) ? <BallPip key={`solid-${n}`} number={n} /> : null
+                    )}
                   </div>
                 </div>
-              ))}
-            </div>
-            <div className="mt-2 space-y-2">
-              <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                <div className="mb-1 text-xs text-white/75">Solids Left</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {[1, 2, 3, 4, 5, 6, 7].map((n) =>
-                    currentState.balls.some((b) => b.number === n && !b.pocketed) ? <BallPip key={`solid-${n}`} number={n} /> : null
-                  )}
-                </div>
-              </div>
-              <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                <div className="mb-1 text-xs text-white/75">Stripes Left</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {[9, 10, 11, 12, 13, 14, 15].map((n) =>
-                    currentState.balls.some((b) => b.number === n && !b.pocketed) ? <BallPip key={`stripe-${n}`} number={n} /> : null
-                  )}
+                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                  <div className="mb-1 text-xs text-white/75">Stripes Left</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[9, 10, 11, 12, 13, 14, 15].map((n) =>
+                      currentState.balls.some((b) => b.number === n && !b.pocketed) ? <BallPip key={`stripe-${n}`} number={n} /> : null
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm text-white/80">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm text-white/80">
           <div>
             {currentState
               ? currentState.shotInProgress
@@ -508,26 +486,26 @@ export default function HomePage() {
               {CUE_STYLES[cueIndex]?.name} | {TABLE_SKINS[tableIndex]?.name}
             </span>
           </div>
-        </div>
+          </div>
 
-        <GameCanvas
-          state={currentState}
-          myUserId={me.id}
-          onShoot={onShoot}
-          onPlaceCue={onPlaceCue}
-          assistStrength={assistStrength}
-          shotPower={shotPower}
-          onShotPowerChange={setShotPower}
-          cueStyle={CUE_STYLES[cueIndex]}
-          tableSkin={TABLE_SKINS[tableIndex]}
-          replay={mode === "online" ? socket.replay : localReplay}
-          inputLocked={mode === "online" ? socket.shotLocked : Boolean(localReplay)}
-          lockLabel={mode === "online" ? "Waiting for shot result..." : "Playing shot..."}
-          onReplayDone={() => {
-            if (mode === "online") socket.clearReplay();
-            else setLocalReplay(null);
-          }}
-        />
+          <GameCanvas
+            state={currentState}
+            myUserId={me.id}
+            onShoot={onShoot}
+            onPlaceCue={onPlaceCue}
+            assistStrength={assistStrength}
+            shotPower={shotPower}
+            onShotPowerChange={setShotPower}
+            cueStyle={CUE_STYLES[cueIndex]}
+            tableSkin={TABLE_SKINS[tableIndex]}
+            replay={mode === "online" ? socket.replay : localReplay}
+            inputLocked={mode === "online" ? socket.shotLocked : Boolean(localReplay)}
+            lockLabel={mode === "online" ? "Waiting for shot result..." : "Playing shot..."}
+            onReplayDone={() => {
+              if (mode === "online") socket.clearReplay();
+              else setLocalReplay(null);
+            }}
+          />
 
         {mode === "online" && (
           <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -580,17 +558,32 @@ export default function HomePage() {
           </div>
         )}
 
-        <div className="mt-4 rounded-xl border border-white/10 bg-black/25 p-3">
-          <div className="mb-2 text-sm font-semibold text-white">Pocketed Balls</div>
-          <div className="flex min-h-10 flex-wrap gap-2">
-            {pocketedBalls.length === 0 ? (
-              <span className="text-xs text-white/55">None yet</span>
-            ) : (
-              pocketedBalls.map((n) => <BallPip key={`pocketed-${n}`} number={n} />)
-            )}
+          <div className="mt-4 rounded-xl border border-white/10 bg-black/25 p-3">
+            <div className="mb-2 text-sm font-semibold text-white">Pocketed Balls</div>
+            <div className="flex min-h-10 flex-wrap gap-2">
+              {pocketedBalls.length === 0 ? (
+                <span className="text-xs text-white/55">None yet</span>
+              ) : (
+                pocketedBalls.map((n) => <BallPip key={`pocketed-${n}`} number={n} />)
+              )}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+
+        <aside className="hidden xl:sticky xl:top-24 xl:block">
+          {currentState && (
+            <PlayerProfileCard
+              player={currentState.players[1]}
+              group={groupLabel(currentState.players[1].group)}
+              canShoot8={canShootEight(currentState, 1)}
+              timeouts={currentState.timeoutStrikes[1]}
+              isActive={1 === currentState.currentTurn && !currentState.shotInProgress && currentState.phase !== "round_end"}
+              arcDeg={Math.max(0, Math.min(360, (activeRemainingMs / shotClockMs) * 360))}
+              remainingSec={Math.max(0, Math.ceil(activeRemainingMs / 1000))}
+            />
+          )}
+        </aside>
+      </div>
 
       <CustomizationMenu
         open={lockerOpen}
@@ -616,6 +609,56 @@ function Stat({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-white/10 bg-white/5 p-2">
       <div className="text-xs uppercase tracking-wide text-white/60">{label}</div>
       <div className="text-sm font-semibold text-white">{value}</div>
+    </div>
+  );
+}
+
+function PlayerProfileCard({
+  player,
+  group,
+  canShoot8,
+  timeouts,
+  isActive,
+  arcDeg,
+  remainingSec
+}: {
+  player: PlayerState;
+  group: string;
+  canShoot8: boolean;
+  timeouts: number;
+  isActive: boolean;
+  arcDeg: number;
+  remainingSec: number;
+}) {
+  return (
+    <div
+      className="rounded-xl p-[2px]"
+      style={
+        isActive
+          ? {
+              background: `conic-gradient(from -90deg, rgba(34,211,238,0.9) 0deg ${arcDeg}deg, rgba(34,211,238,0.16) ${arcDeg}deg 360deg)`,
+              boxShadow: "0 0 16px rgba(34,211,238,0.32)"
+            }
+          : undefined
+      }
+    >
+      <div className={`rounded-lg border px-3 py-2 text-sm ${isActive ? "border-cyan-300/50 bg-cyan-500/10 text-cyan-100" : "border-white/10 bg-white/5 text-white/85"}`}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-semibold">
+            {player.username} ({group})
+          </div>
+          <div className="text-[11px] text-white/75">Clock: {isActive ? `${remainingSec}s` : "30s"}</div>
+        </div>
+        <div className="text-xs">Can shoot 8: {canShoot8 ? "Yes" : "No"}</div>
+        <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-white/80">
+          <span>W/L: {player.profile?.wins ?? 0}/{player.profile?.losses ?? 0}</span>
+          <span>Ratio: {ratioText(player.profile?.wins ?? 0, player.profile?.losses ?? 0)}</span>
+          <span>Level: {player.profile?.level ?? 1}</span>
+          <span>Games: {player.profile?.matchesPlayed ?? 0}</span>
+          <span>Region: {player.profile?.region ?? "Global"}</span>
+          <span>Timeouts: {timeouts}/3</span>
+        </div>
+      </div>
     </div>
   );
 }
