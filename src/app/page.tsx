@@ -379,6 +379,24 @@ export default function HomePage() {
                 </div>
               ))}
             </div>
+            <div className="mt-2 space-y-2">
+              <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                <div className="mb-1 text-xs text-white/75">Solids Left</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[1, 2, 3, 4, 5, 6, 7].map((n) =>
+                    currentState.balls.some((b) => b.number === n && !b.pocketed) ? <BallPip key={`solid-${n}`} number={n} /> : null
+                  )}
+                </div>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                <div className="mb-1 text-xs text-white/75">Stripes Left</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[9, 10, 11, 12, 13, 14, 15].map((n) =>
+                    currentState.balls.some((b) => b.number === n && !b.pocketed) ? <BallPip key={`stripe-${n}`} number={n} /> : null
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

@@ -47,6 +47,10 @@ export function GameCanvas({
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [aim, setAim] = useState<AimState>({ active: false, angle: 0, power: 0.35 });
+  const aimRef = useRef<AimState>(aim);
+  const aimSyncRaf = useRef<number | null>(null);
+  const rollAngleRef = useRef<Map<number, number>>(new Map());
+  const lastFrameRef = useRef<number>(0);
   const [replayProgress, setReplayProgress] = useState(0);
   const displayPower = shotPower ?? aim.power;
   const activeCue = cueStyle ?? {
@@ -77,6 +81,16 @@ export function GameCanvas({
     if (!state || !myUserId) return false;
     return state.players[state.currentTurn]?.userId === myUserId;
   }, [state, myUserId]);
+
+  useEffect(() => {
+    aimRef.current = aim;
+  }, [aim]);
+
+  useEffect(() => {
+    return () => {
+      if (aimSyncRaf.current !== null) window.cancelAnimationFrame(aimSyncRaf.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!replay || replay.frames.length === 0) {
@@ -135,23 +149,26 @@ export function GameCanvas({
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap || !state) return;
-
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const rect = wrap.getBoundingClientRect();
-    canvas.width = Math.floor(rect.width * dpr);
-    canvas.height = Math.floor((rect.width * 0.58) * dpr);
-    canvas.style.height = `${rect.width * 0.58}px`;
-
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    let raf = 0;
 
-    const draw = () => {
+    const draw = (now: number) => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const rect = wrap.getBoundingClientRect();
+      canvas.width = Math.floor(rect.width * dpr);
+      canvas.height = Math.floor((rect.width * 0.58) * dpr);
+      canvas.style.height = `${rect.width * 0.58}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const dt = lastFrameRef.current > 0 ? Math.min(0.05, (now - lastFrameRef.current) / 1000) : 1 / 60;
+      lastFrameRef.current = now;
       const width = rect.width;
       const height = rect.width * 0.58;
       const scale = Math.min(width / state.table.width, height / state.table.height);
       const ox = (width - state.table.width * scale) / 2;
       const oy = (height - state.table.height * scale) / 2;
+      const liveAim = aimRef.current;
 
       ctx.clearRect(0, 0, width, height);
 
@@ -194,9 +211,9 @@ export function GameCanvas({
       }
 
       const cue = state.balls.find((b) => b.kind === "cue" && !b.pocketed);
-      if (cue && isMyTurn && aim.active && !state.ballInHand) {
+      if (cue && isMyTurn && liveAim.active && !state.ballInHand) {
         const previewLen = 280 * assistStrength;
-        const prediction = predictFirstCollision(state.balls, cue, aim.angle);
+        const prediction = predictFirstCollision(state.balls, cue, liveAim.angle);
 
         ctx.strokeStyle = "rgba(255,255,255,0.5)";
         ctx.lineWidth = 2;
@@ -206,7 +223,7 @@ export function GameCanvas({
         if (prediction) {
           ctx.lineTo(prediction.cueImpact.x, prediction.cueImpact.y);
         } else {
-          ctx.lineTo(cue.pos.x + Math.cos(aim.angle) * previewLen, cue.pos.y + Math.sin(aim.angle) * previewLen);
+          ctx.lineTo(cue.pos.x + Math.cos(liveAim.angle) * previewLen, cue.pos.y + Math.sin(liveAim.angle) * previewLen);
         }
         ctx.stroke();
         ctx.setLineDash([]);
@@ -245,28 +262,28 @@ export function GameCanvas({
         ctx.strokeStyle = activeCue.butt;
         ctx.lineWidth = 5.5;
         ctx.beginPath();
-        ctx.moveTo(cue.pos.x - Math.cos(aim.angle) * 26, cue.pos.y - Math.sin(aim.angle) * 26);
+        ctx.moveTo(cue.pos.x - Math.cos(liveAim.angle) * 26, cue.pos.y - Math.sin(liveAim.angle) * 26);
         ctx.lineTo(
-          cue.pos.x - Math.cos(aim.angle) * (220 + displayPower * 40),
-          cue.pos.y - Math.sin(aim.angle) * (220 + displayPower * 40)
+          cue.pos.x - Math.cos(liveAim.angle) * (220 + displayPower * 40),
+          cue.pos.y - Math.sin(liveAim.angle) * (220 + displayPower * 40)
         );
         ctx.stroke();
 
         ctx.strokeStyle = "#e8ebef";
         ctx.lineWidth = 3.6;
         ctx.beginPath();
-        ctx.moveTo(cue.pos.x - Math.cos(aim.angle) * 30, cue.pos.y - Math.sin(aim.angle) * 30);
+        ctx.moveTo(cue.pos.x - Math.cos(liveAim.angle) * 30, cue.pos.y - Math.sin(liveAim.angle) * 30);
         ctx.lineTo(
-          cue.pos.x - Math.cos(aim.angle) * (190 + displayPower * 30),
-          cue.pos.y - Math.sin(aim.angle) * (190 + displayPower * 30)
+          cue.pos.x - Math.cos(liveAim.angle) * (190 + displayPower * 30),
+          cue.pos.y - Math.sin(liveAim.angle) * (190 + displayPower * 30)
         );
         ctx.stroke();
 
         ctx.strokeStyle = "#090d13";
         ctx.lineWidth = 3.8;
         ctx.beginPath();
-        ctx.moveTo(cue.pos.x - Math.cos(aim.angle) * 170, cue.pos.y - Math.sin(aim.angle) * 170);
-        ctx.lineTo(cue.pos.x - Math.cos(aim.angle) * 155, cue.pos.y - Math.sin(aim.angle) * 155);
+        ctx.moveTo(cue.pos.x - Math.cos(liveAim.angle) * 170, cue.pos.y - Math.sin(liveAim.angle) * 170);
+        ctx.lineTo(cue.pos.x - Math.cos(liveAim.angle) * 155, cue.pos.y - Math.sin(liveAim.angle) * 155);
         ctx.stroke();
 
         const flagBandStarts = [108, 124, 140];
@@ -276,8 +293,8 @@ export function GameCanvas({
           ctx.strokeStyle = activeCue.flagColors[i];
           ctx.lineWidth = 3.2;
           ctx.beginPath();
-          ctx.moveTo(cue.pos.x - Math.cos(aim.angle) * start, cue.pos.y - Math.sin(aim.angle) * start);
-          ctx.lineTo(cue.pos.x - Math.cos(aim.angle) * end, cue.pos.y - Math.sin(aim.angle) * end);
+          ctx.moveTo(cue.pos.x - Math.cos(liveAim.angle) * start, cue.pos.y - Math.sin(liveAim.angle) * start);
+          ctx.lineTo(cue.pos.x - Math.cos(liveAim.angle) * end, cue.pos.y - Math.sin(liveAim.angle) * end);
           ctx.stroke();
         }
       }
@@ -289,6 +306,10 @@ export function GameCanvas({
         const isCue = ball.kind === "cue";
         const isEight = ball.kind === "eight";
         const isStripe = ball.kind === "stripe";
+        const speed = Math.hypot(ball.vel.x, ball.vel.y);
+        const currentRoll = rollAngleRef.current.get(ball.id) ?? 0;
+        const nextRoll = currentRoll + (speed * dt) / Math.max(1, ball.radius) * 0.9;
+        rollAngleRef.current.set(ball.id, nextRoll);
 
         ctx.beginPath();
         ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
@@ -318,6 +339,20 @@ export function GameCanvas({
           ctx.fillText(String(ball.number), ball.pos.x, ball.pos.y + 0.5);
         }
 
+        const rollR = ball.radius * 0.5;
+        const rx = Math.cos(nextRoll) * rollR;
+        const ry = Math.sin(nextRoll) * rollR;
+        ctx.fillStyle = "rgba(0,0,0,0.2)";
+        ctx.beginPath();
+        ctx.arc(ball.pos.x + rx * 0.32, ball.pos.y + ry * 0.32, Math.max(1.2, ball.radius * 0.15), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.3)";
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(ball.pos.x - rx * 0.42, ball.pos.y - ry * 0.42);
+        ctx.lineTo(ball.pos.x + rx * 0.42, ball.pos.y + ry * 0.42);
+        ctx.stroke();
+
         const shine = ctx.createRadialGradient(ball.pos.x - 4, ball.pos.y - 4, 0, ball.pos.x, ball.pos.y, ball.radius);
         shine.addColorStop(0, "rgba(255,255,255,0.7)");
         shine.addColorStop(1, "rgba(255,255,255,0)");
@@ -328,12 +363,12 @@ export function GameCanvas({
       }
 
       ctx.restore();
+      raf = window.requestAnimationFrame(draw);
     };
 
-    draw();
-    window.addEventListener("resize", draw);
-    return () => window.removeEventListener("resize", draw);
-  }, [state, aim, isMyTurn, assistStrength, interpolatedReplayBalls, displayPower, activeCue, activeTable]);
+    raf = window.requestAnimationFrame(draw);
+    return () => window.cancelAnimationFrame(raf);
+  }, [state, isMyTurn, assistStrength, interpolatedReplayBalls, displayPower, activeCue, activeTable]);
 
   const pointerToTable = (e: PointerEvent): { x: number; y: number } | null => {
     if (!state) return null;
@@ -367,11 +402,11 @@ export function GameCanvas({
     const dx = p.x - cue.pos.x;
     const dy = p.y - cue.pos.y;
     const angle = Math.atan2(dy, dx);
-    setAim((prev) => ({ ...prev, active: true, angle }));
+    syncAim({ ...aimRef.current, active: true, angle });
   };
 
   const onMove = (e: PointerEvent) => {
-    if (!state || !aim.active || !isMyTurn || inputLocked) return;
+    if (!state || !aimRef.current.active || !isMyTurn || inputLocked) return;
     const p = pointerToTable(e);
     if (!p) return;
 
@@ -383,16 +418,26 @@ export function GameCanvas({
     const angle = Math.atan2(dy, dx);
     const dragPower = Math.min(1, Math.max(0.08, drag / 250));
     if (onShotPowerChange) {
-      setAim((prev) => ({ ...prev, angle }));
+      syncAim({ ...aimRef.current, angle });
     } else {
-      setAim((prev) => ({ ...prev, angle, power: dragPower }));
+      syncAim({ ...aimRef.current, angle, power: dragPower });
     }
   };
 
   const onUp = () => {
-    if (!state || !isMyTurn || !aim.active || inputLocked) return;
-    setAim((prev) => ({ ...prev, active: false }));
-    onShoot({ angle: aim.angle, power: displayPower, spin: { x: 0, y: 0 } });
+    const liveAim = aimRef.current;
+    if (!state || !isMyTurn || !liveAim.active || inputLocked) return;
+    syncAim({ ...liveAim, active: false });
+    onShoot({ angle: liveAim.angle, power: displayPower, spin: { x: 0, y: 0 } });
+  };
+
+  const syncAim = (next: AimState) => {
+    aimRef.current = next;
+    if (aimSyncRaf.current !== null) return;
+    aimSyncRaf.current = window.requestAnimationFrame(() => {
+      setAim(aimRef.current);
+      aimSyncRaf.current = null;
+    });
   };
 
   return (
