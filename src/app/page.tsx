@@ -33,7 +33,10 @@ type Me = {
 };
 
 export default function HomePage() {
+  const SESSION_CACHE_KEY = "arena_cached_user_v1";
   const [me, setMe] = useState<Me | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [sessionWarning, setSessionWarning] = useState<string | null>(null);
   const [assistStrength, setAssistStrength] = useState(0.65);
   const [shotPower, setShotPower] = useState(0.42);
   const [cueIndex, setCueIndex] = useState(0);
@@ -46,16 +49,51 @@ export default function HomePage() {
   const socket = useArenaSocket(Boolean(me) && mode === "online");
 
   useEffect(() => {
-    api<{ user: Me }>("/api/profile")
-      .then((res) => {
-        const incoming = res.user;
-        const equippedId = incoming.stats?.equippedCueId ?? "cue_beginner";
-        const idx = CUE_STYLES.findIndex((c) => c.id === equippedId);
-        if (idx >= 0) setCueIndex(idx);
-        setMe(incoming);
-      })
-      .catch(() => undefined);
+    const cached = window.localStorage.getItem(SESSION_CACHE_KEY);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as Me;
+        setMe(parsed);
+      } catch {
+        window.localStorage.removeItem(SESSION_CACHE_KEY);
+      }
+    }
+
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const hydrateProfile = async () => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const res = await api<{ user: Me }>("/api/profile");
+          const incoming = res.user;
+          const equippedId = incoming.stats?.equippedCueId ?? "cue_beginner";
+          const idx = CUE_STYLES.findIndex((c) => c.id === equippedId);
+          if (idx >= 0) setCueIndex(idx);
+          setMe(incoming);
+          window.localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(incoming));
+          setSessionWarning(null);
+          setAuthLoading(false);
+          return;
+        } catch {
+          if (attempt < 2) await sleep((attempt + 1) * 450);
+        }
+      }
+
+      setAuthLoading(false);
+      if (cached) {
+        setSessionWarning("Using cached session data. Reconnect to sync latest profile.");
+      } else {
+        setMe(null);
+      }
+    };
+
+    hydrateProfile();
   }, []);
+
+  useEffect(() => {
+    if (!me) return;
+    window.localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(me));
+  }, [me]);
 
   useEffect(() => {
     if (mode !== "sandbox" || !me) return;
@@ -158,6 +196,18 @@ export default function HomePage() {
 
   const solidsRemaining = useMemo(() => currentState?.balls.filter((b) => !b.pocketed && b.number >= 1 && b.number <= 7).length ?? 7, [currentState]);
   const stripesRemaining = useMemo(() => currentState?.balls.filter((b) => !b.pocketed && b.number >= 9 && b.number <= 15).length ?? 7, [currentState]);
+  const pocketedBalls = useMemo(
+    () =>
+      currentState?.balls
+        .filter((b) => b.pocketed && b.number >= 1 && b.number <= 15)
+        .map((b) => b.number)
+        .sort((a, b) => a - b) ?? [],
+    [currentState]
+  );
+  const ballsLeft = useMemo(
+    () => currentState?.balls.filter((b) => !b.pocketed && b.kind !== "cue").length ?? 15,
+    [currentState]
+  );
   const xp = me?.stats?.xp ?? 0;
   const level = Math.max(1, me?.stats?.level ?? Math.floor(xp / 1000) + 1);
   const currentLevelStart = (level - 1) * 1000;
@@ -235,6 +285,14 @@ export default function HomePage() {
     }
   };
 
+  if (authLoading && !me) {
+    return (
+      <main className="flex min-h-screen items-center justify-center p-4 text-white/80">
+        Restoring session...
+      </main>
+    );
+  }
+
   if (!me) {
     return (
       <main className="flex min-h-screen items-center justify-center p-4">
@@ -276,6 +334,7 @@ export default function HomePage() {
             <button
               onClick={async () => {
                 await api<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
+                window.localStorage.removeItem(SESSION_CACHE_KEY);
                 setMe(null);
               }}
               className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white"
@@ -292,9 +351,37 @@ export default function HomePage() {
           <Stat label="Solids" value={`${solidsRemaining}`} />
           <Stat label="Stripes" value={`${stripesRemaining}`} />
         </div>
+        {sessionWarning && <div className="mt-3 rounded-lg border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">{sessionWarning}</div>}
       </header>
 
       <section className="rounded-2xl border border-white/10 bg-black/20 p-4">
+        {currentState && (
+          <div className="mb-3 rounded-xl border border-white/10 bg-black/20 p-3">
+            <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
+              <Stat label="Turn" value={currentState.players[currentState.currentTurn]?.username ?? "-"} />
+              <Stat
+                label="Group"
+                value={`P1: ${groupLabel(currentState.players[0].group)} | P2: ${groupLabel(currentState.players[1].group)}`}
+              />
+              <Stat label="Shots" value={`${currentState.shotCount}`} />
+              <Stat label="Balls Left" value={`${ballsLeft}`} />
+            </div>
+            <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+              {currentState.players.map((p, idx) => (
+                <div
+                  key={p.userId}
+                  className={`rounded-lg border px-3 py-2 text-sm ${idx === currentState.currentTurn ? "border-cyan-300/50 bg-cyan-500/10 text-cyan-100" : "border-white/10 bg-white/5 text-white/85"}`}
+                >
+                  <div className="font-semibold">
+                    {p.username} ({groupLabel(p.group)})
+                  </div>
+                  <div className="text-xs">Can shoot 8: {canShootEight(currentState, idx) ? "Yes" : "No"}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm text-white/80">
           <div>
             {currentState
@@ -393,6 +480,17 @@ export default function HomePage() {
             <div className="text-sm text-white/70">Reason: {socket.result.reason}</div>
           </div>
         )}
+
+        <div className="mt-4 rounded-xl border border-white/10 bg-black/25 p-3">
+          <div className="mb-2 text-sm font-semibold text-white">Pocketed Balls</div>
+          <div className="flex min-h-10 flex-wrap gap-2">
+            {pocketedBalls.length === 0 ? (
+              <span className="text-xs text-white/55">None yet</span>
+            ) : (
+              pocketedBalls.map((n) => <BallPip key={`pocketed-${n}`} number={n} />)
+            )}
+          </div>
+        </div>
       </section>
 
       <CustomizationMenu
@@ -421,4 +519,54 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="text-sm font-semibold text-white">{value}</div>
     </div>
   );
+}
+
+function groupLabel(group: "solids" | "stripes" | null): string {
+  if (!group) return "Open";
+  return group === "solids" ? "Solids" : "Stripes";
+}
+
+function canShootEight(state: MatchState, playerIndex: number): boolean {
+  const p = state.players[playerIndex];
+  if (!p.group) return false;
+  return state.balls.filter((b) => !b.pocketed && (p.group === "solids" ? b.number >= 1 && b.number <= 7 : b.number >= 9 && b.number <= 15)).length === 0;
+}
+
+function BallPip({ number }: { number: number }) {
+  const color = colorForBall(number);
+  const stripe = number >= 9;
+  return (
+    <span className="inline-flex h-6 w-6 items-center justify-center overflow-hidden rounded-full border border-white/35 bg-white text-[10px] font-bold text-black">
+      <span
+        className="flex h-full w-full items-center justify-center"
+        style={{
+          background: stripe ? `linear-gradient(180deg,#ffffff 0 24%,${color} 24% 76%,#ffffff 76% 100%)` : color
+        }}
+      >
+        <span className="rounded-full bg-white/95 px-0.5 leading-none">{number}</span>
+      </span>
+    </span>
+  );
+}
+
+function colorForBall(number: number): string {
+  const n = number >= 9 ? number - 8 : number;
+  switch (n) {
+    case 1:
+      return "#f8cf3d";
+    case 2:
+      return "#2f74df";
+    case 3:
+      return "#d4453e";
+    case 4:
+      return "#7b43c4";
+    case 5:
+      return "#ef8732";
+    case 6:
+      return "#2a8a4e";
+    case 7:
+      return "#7a1e1e";
+    default:
+      return "#10161f";
+  }
 }

@@ -57,6 +57,7 @@ export type MatchState = {
   matchId: string;
   players: [PlayerState, PlayerState];
   currentTurn: number;
+  shotCount: number;
   phase: GamePhase;
   table: TableConfig;
   balls: BallState[];

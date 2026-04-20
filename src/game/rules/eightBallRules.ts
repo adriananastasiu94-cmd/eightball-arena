@@ -106,6 +106,7 @@ export function adjudicateShot(state: MatchState, input: OutcomeInput): ShotOutc
 }
 
 export function applyOutcomeToTurn(state: MatchState, outcome: ShotOutcome): void {
+  state.shotCount += 1;
   state.lastOutcome = outcome;
   if (outcome.winnerUserId) {
     state.phase = "round_end";

@@ -196,14 +196,51 @@ export function GameCanvas({
       const cue = state.balls.find((b) => b.kind === "cue" && !b.pocketed);
       if (cue && isMyTurn && aim.active && !state.ballInHand) {
         const previewLen = 280 * assistStrength;
-        ctx.strokeStyle = "rgba(255,255,255,0.48)";
+        const prediction = predictFirstCollision(state.balls, cue, aim.angle);
+
+        ctx.strokeStyle = "rgba(255,255,255,0.5)";
         ctx.lineWidth = 2;
         ctx.setLineDash([8, 8]);
         ctx.beginPath();
         ctx.moveTo(cue.pos.x, cue.pos.y);
-        ctx.lineTo(cue.pos.x + Math.cos(aim.angle) * previewLen, cue.pos.y + Math.sin(aim.angle) * previewLen);
+        if (prediction) {
+          ctx.lineTo(prediction.cueImpact.x, prediction.cueImpact.y);
+        } else {
+          ctx.lineTo(cue.pos.x + Math.cos(aim.angle) * previewLen, cue.pos.y + Math.sin(aim.angle) * previewLen);
+        }
         ctx.stroke();
         ctx.setLineDash([]);
+
+        if (prediction) {
+          ctx.strokeStyle = "rgba(255,255,255,0.65)";
+          ctx.lineWidth = 1.75;
+          ctx.setLineDash([6, 7]);
+          ctx.beginPath();
+          ctx.moveTo(prediction.target.pos.x, prediction.target.pos.y);
+          ctx.lineTo(
+            prediction.target.pos.x + prediction.targetDir.x * (150 * assistStrength),
+            prediction.target.pos.y + prediction.targetDir.y * (150 * assistStrength)
+          );
+          ctx.stroke();
+
+          if (prediction.cueDeflectDir) {
+            ctx.strokeStyle = "rgba(183, 232, 255, 0.62)";
+            ctx.beginPath();
+            ctx.moveTo(prediction.cueImpact.x, prediction.cueImpact.y);
+            ctx.lineTo(
+              prediction.cueImpact.x + prediction.cueDeflectDir.x * (110 * assistStrength),
+              prediction.cueImpact.y + prediction.cueDeflectDir.y * (110 * assistStrength)
+            );
+            ctx.stroke();
+          }
+          ctx.setLineDash([]);
+
+          ctx.strokeStyle = "rgba(255,255,255,0.75)";
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.arc(prediction.target.pos.x, prediction.target.pos.y, cue.radius * 1.45, 0, Math.PI * 2);
+          ctx.stroke();
+        }
 
         ctx.strokeStyle = activeCue.butt;
         ctx.lineWidth = 5.5;
@@ -416,4 +453,56 @@ function colorForBall(number: number): string {
     default:
       return ARENA_THEME.solid;
   }
+}
+
+function predictFirstCollision(
+  balls: BallState[],
+  cue: BallState,
+  angle: number
+): {
+  target: BallState;
+  cueImpact: { x: number; y: number };
+  targetDir: { x: number; y: number };
+  cueDeflectDir: { x: number; y: number } | null;
+} | null {
+  const dir = { x: Math.cos(angle), y: Math.sin(angle) };
+  const radiusSum = cue.radius * 2;
+  let best: { ball: BallState; distAlong: number } | null = null;
+
+  for (const b of balls) {
+    if (b.pocketed || b.id === cue.id) continue;
+    const toTarget = { x: b.pos.x - cue.pos.x, y: b.pos.y - cue.pos.y };
+    const t = toTarget.x * dir.x + toTarget.y * dir.y;
+    if (t <= 0) continue;
+
+    const closest = { x: cue.pos.x + dir.x * t, y: cue.pos.y + dir.y * t };
+    const perp = Math.hypot(b.pos.x - closest.x, b.pos.y - closest.y);
+    if (perp > radiusSum) continue;
+
+    const reach = Math.sqrt(Math.max(0, radiusSum * radiusSum - perp * perp));
+    const distAlong = t - reach;
+    if (distAlong <= 0) continue;
+    if (!best || distAlong < best.distAlong) best = { ball: b, distAlong };
+  }
+
+  if (!best) return null;
+  const cueImpact = {
+    x: cue.pos.x + dir.x * best.distAlong,
+    y: cue.pos.y + dir.y * best.distAlong
+  };
+  const toTarget = { x: best.ball.pos.x - cueImpact.x, y: best.ball.pos.y - cueImpact.y };
+  const l = Math.hypot(toTarget.x, toTarget.y) || 1;
+  const targetDir = { x: toTarget.x / l, y: toTarget.y / l };
+
+  const proj = dir.x * targetDir.x + dir.y * targetDir.y;
+  const cueOut = { x: dir.x - targetDir.x * proj, y: dir.y - targetDir.y * proj };
+  const cueOutLen = Math.hypot(cueOut.x, cueOut.y);
+  const cueDeflectDir = cueOutLen > 1e-4 ? { x: cueOut.x / cueOutLen, y: cueOut.y / cueOutLen } : null;
+
+  return {
+    target: best.ball,
+    cueImpact,
+    targetDir,
+    cueDeflectDir
+  };
 }
