@@ -105,16 +105,22 @@ export function CustomizationMenu({
                   <div key={cue.id} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-2">
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="w-36 text-sm font-medium text-white">{cue.name}</div>
-                      <div className="relative h-4 w-full rounded-full bg-slate-900">
+                      <div className="relative h-3.5 w-full rounded-full border border-white/15 bg-[#dadde0]">
+                        <div className="absolute left-[1%] top-1/2 h-2.5 w-[14%] -translate-y-1/2 rounded-full bg-[#5a3a1f]" />
+                        <div className="absolute left-[15%] top-1/2 h-2.5 w-[7%] -translate-y-1/2 rounded-full bg-black/90" />
                         <div
-                          className="absolute left-0 top-1/2 h-2 -translate-y-1/2 rounded-full"
-                          style={{
-                            width: "100%",
-                            background: `linear-gradient(90deg, ${cue.butt} 0%, ${cue.accent} 34%, ${cue.shaft} 72%, ${cue.tip} 100%)`
-                          }}
+                          className="absolute left-[32%] top-1/2 h-2 -translate-y-1/2"
+                          style={{ width: "15%", backgroundColor: cue.flagColors[0], clipPath: "polygon(0 0, 100% 20%, 88% 100%, 0 80%)" }}
                         />
-                        <div className="absolute left-[34%] top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border border-white/35" style={{ backgroundColor: cue.accent }} />
-                        <div className="absolute left-[72%] top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border border-white/35" style={{ backgroundColor: cue.shaft }} />
+                        <div
+                          className="absolute left-[45%] top-1/2 h-2 -translate-y-1/2"
+                          style={{ width: "15%", backgroundColor: cue.flagColors[1], clipPath: "polygon(12% 0, 100% 20%, 88% 100%, 0 80%)" }}
+                        />
+                        <div
+                          className="absolute left-[58%] top-1/2 h-2 -translate-y-1/2"
+                          style={{ width: "15%", backgroundColor: cue.flagColors[2], clipPath: "polygon(12% 0, 100% 20%, 88% 100%, 0 80%)" }}
+                        />
+                        <div className="absolute right-[1%] top-1/2 h-2.5 w-[2.5%] -translate-y-1/2 rounded-full bg-[#a0a5ad]" />
                       </div>
                     </div>
                     <div className="flex items-center gap-2">

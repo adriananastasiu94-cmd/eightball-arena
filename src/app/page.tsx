@@ -66,6 +66,38 @@ export default function HomePage() {
     setLocalState(createMatchState("sandbox", players));
   }, [mode, me]);
 
+  useEffect(() => {
+    if (mode !== "sandbox" || !localState || localReplay) return;
+    if (localState.phase === "round_end" || localState.shotInProgress) return;
+    const botTurn = localState.players[localState.currentTurn]?.userId === "local_opponent";
+    if (!botTurn) return;
+
+    const timeoutId = window.setTimeout(() => {
+      const liveState = localState;
+      if (liveState.ballInHand) {
+        const y = liveState.table.height * (0.3 + Math.random() * 0.4);
+        onPlaceCue(liveState.table.width * 0.24, y);
+      }
+
+      const cue = liveState.balls.find((b) => b.kind === "cue" && !b.pocketed);
+      const targets = liveState.balls.filter((b) => !b.pocketed && b.kind !== "cue");
+      if (!cue || targets.length === 0) return;
+
+      const target = targets.reduce((best, candidate) => {
+        const dBest = Math.hypot(best.pos.x - cue.pos.x, best.pos.y - cue.pos.y);
+        const dCand = Math.hypot(candidate.pos.x - cue.pos.x, candidate.pos.y - cue.pos.y);
+        return dCand < dBest ? candidate : best;
+      }, targets[0]);
+
+      const baseAngle = Math.atan2(target.pos.y - cue.pos.y, target.pos.x - cue.pos.x);
+      const jitter = (Math.random() - 0.5) * 0.18;
+      const power = Math.min(0.85, Math.max(0.35, Math.hypot(target.pos.x - cue.pos.x, target.pos.y - cue.pos.y) / 420));
+      onShoot({ angle: baseAngle + jitter, power, spin: { x: 0, y: 0 } });
+    }, 650);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [mode, localState, localReplay]);
+
   const currentState = mode === "online" ? socket.state : localState;
 
   const onShoot = (shot: ShotInput) => {

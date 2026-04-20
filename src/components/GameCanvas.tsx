@@ -206,7 +206,7 @@ export function GameCanvas({
         ctx.setLineDash([]);
 
         ctx.strokeStyle = activeCue.butt;
-        ctx.lineWidth = 6;
+        ctx.lineWidth = 5.5;
         ctx.beginPath();
         ctx.moveTo(cue.pos.x - Math.cos(aim.angle) * 26, cue.pos.y - Math.sin(aim.angle) * 26);
         ctx.lineTo(
@@ -215,8 +215,8 @@ export function GameCanvas({
         );
         ctx.stroke();
 
-        ctx.strokeStyle = activeCue.shaft;
-        ctx.lineWidth = 3;
+        ctx.strokeStyle = "#e8ebef";
+        ctx.lineWidth = 3.6;
         ctx.beginPath();
         ctx.moveTo(cue.pos.x - Math.cos(aim.angle) * 30, cue.pos.y - Math.sin(aim.angle) * 30);
         ctx.lineTo(
@@ -225,12 +225,19 @@ export function GameCanvas({
         );
         ctx.stroke();
 
-        const flagBandStarts = [98, 114, 130];
+        ctx.strokeStyle = "#090d13";
+        ctx.lineWidth = 3.8;
+        ctx.beginPath();
+        ctx.moveTo(cue.pos.x - Math.cos(aim.angle) * 170, cue.pos.y - Math.sin(aim.angle) * 170);
+        ctx.lineTo(cue.pos.x - Math.cos(aim.angle) * 155, cue.pos.y - Math.sin(aim.angle) * 155);
+        ctx.stroke();
+
+        const flagBandStarts = [108, 124, 140];
         for (let i = 0; i < activeCue.flagColors.length; i += 1) {
           const start = flagBandStarts[i] ?? 98 + i * 16;
-          const end = start + 10;
+          const end = start + 16;
           ctx.strokeStyle = activeCue.flagColors[i];
-          ctx.lineWidth = 3;
+          ctx.lineWidth = 3.2;
           ctx.beginPath();
           ctx.moveTo(cue.pos.x - Math.cos(aim.angle) * start, cue.pos.y - Math.sin(aim.angle) * start);
           ctx.lineTo(cue.pos.x - Math.cos(aim.angle) * end, cue.pos.y - Math.sin(aim.angle) * end);
