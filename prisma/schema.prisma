@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MatchResult {
+  PLAYER_ONE_WIN
+  PLAYER_TWO_WIN
+  DRAW
+  ABANDONED
+}
+
+model User {
+  id            String             @id @default(cuid())
+  email         String             @unique
+  username      String             @unique
+  passwordHash  String
+  avatarUrl     String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  playerStats   PlayerStats?
+  sessions      Session[]
+  queueEntries  QueueEntry[]
+  participants  MatchParticipant[]
+  history       MatchHistory[]
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  token      String   @unique
+  userId     String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PlayerStats {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  wins          Int      @default(0)
+  losses        Int      @default(0)
+  matchesPlayed Int      @default(0)
+  rating        Int      @default(1000)
+  level         Int      @default(1)
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Match {
+  id            String             @id @default(cuid())
+  status        String             @default("FINISHED")
+  startedAt     DateTime           @default(now())
+  completedAt   DateTime?
+  winnerUserId  String?
+  result        MatchResult
+  participants  MatchParticipant[]
+  history       MatchHistory[]
+}
+
+model MatchParticipant {
+  id         String   @id @default(cuid())
+  matchId    String
+  userId     String
+  seat       Int
+  solids     Boolean?
+  isWinner   Boolean  @default(false)
+  match      Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, seat])
+}
+
+model MatchHistory {
+  id         String   @id @default(cuid())
+  userId     String
+  matchId    String
+  summary    String
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match      Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+}
+
+model QueueEntry {
+  id         String   @id @default(cuid())
+  userId     String
+  socketId   String
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId])
+}
