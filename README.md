@@ -2,6 +2,8 @@
 
 Original browser-based 8-ball game with server-authoritative multiplayer, premium HUD, and deterministic 2D physics.
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/adriananastasiu94-cmd/eightball-arena)
+
 ## Stack
 
 - Next.js 15 + React + TypeScript
