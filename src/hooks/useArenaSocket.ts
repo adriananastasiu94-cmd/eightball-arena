@@ -12,7 +12,10 @@ export function useArenaSocket(enabled: boolean) {
   const [matchFound, setMatchFound] = useState(false);
   const [result, setResult] = useState<{ winnerUserId: string | null; reason: string } | null>(null);
   const [replay, setReplay] = useState<{ id: string; frames: BallState[][]; fps: number } | null>(null);
+  const [isShotPending, setIsShotPending] = useState(false);
+  const [shotError, setShotError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const lockTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -26,24 +29,50 @@ export function useArenaSocket(enabled: boolean) {
     socket.on("match:found", () => {
       setMatchFound(true);
       setResult(null);
+      setShotError(null);
     });
-    socket.on("match:state", ({ state: nextState }) => setState(nextState));
+    socket.on("match:state", ({ state: nextState }) => {
+      setState(nextState);
+      if (!nextState.shotInProgress) setIsShotPending(false);
+    });
     socket.on("match:replay", (payload) => {
+      const durationMs =
+        typeof payload.durationMs === "number"
+          ? payload.durationMs
+          : Math.max(300, Math.round((payload.frames.length / Math.max(1, payload.fps)) * 1000));
+
       setReplay({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         frames: payload.frames,
         fps: payload.fps
       });
+      setIsShotPending(true);
+      if (lockTimerRef.current !== null) window.clearTimeout(lockTimerRef.current);
+      lockTimerRef.current = window.setTimeout(() => setIsShotPending(false), durationMs + 80);
     });
     socket.on("match:ended", (payload) => setResult(payload));
+    socket.on("match:shot-rejected", (payload) => {
+      setShotError(payload.reason);
+      setIsShotPending(false);
+    });
 
     socketRef.current = socket;
 
     return () => {
+      if (lockTimerRef.current !== null) {
+        window.clearTimeout(lockTimerRef.current);
+        lockTimerRef.current = null;
+      }
       socket.close();
       socketRef.current = null;
     };
   }, [enabled]);
+
+  useEffect(() => {
+    if (!shotError) return;
+    const id = window.setTimeout(() => setShotError(null), 2400);
+    return () => window.clearTimeout(id);
+  }, [shotError]);
 
   const api = useMemo(
     () => ({
@@ -52,14 +81,22 @@ export function useArenaSocket(enabled: boolean) {
       matchFound,
       result,
       replay,
+      shotError,
+      shotLocked: isShotPending || Boolean(state?.shotInProgress),
       joinQueue: () => socketRef.current?.emit("queue:join"),
       leaveQueue: () => socketRef.current?.emit("queue:leave"),
-      shoot: (shot: ShotInput) => socketRef.current?.emit("match:shot", shot),
+      shoot: (shot: ShotInput) => {
+        if (isShotPending || state?.shotInProgress) return;
+        setShotError(null);
+        setIsShotPending(true);
+        socketRef.current?.emit("match:shot", shot);
+      },
       placeCue: (x: number, y: number) => socketRef.current?.emit("match:ball-in-hand", { x, y }),
       rematch: () => socketRef.current?.emit("match:rematch"),
-      clearReplay: () => setReplay(null)
+      clearReplay: () => setReplay(null),
+      clearShotError: () => setShotError(null)
     }),
-    [queue, state, matchFound, result, replay]
+    [queue, state, matchFound, result, replay, shotError, isShotPending]
   );
 
   return api;

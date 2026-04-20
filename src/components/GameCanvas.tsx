@@ -10,7 +10,11 @@ type Props = {
   onShoot: (shot: ShotInput) => void;
   onPlaceCue: (x: number, y: number) => void;
   assistStrength: number;
+  shotPower?: number;
+  onShotPowerChange?: (nextPower: number) => void;
   replay: { id: string; frames: BallState[][]; fps: number } | null;
+  inputLocked?: boolean;
+  lockLabel?: string | null;
   onReplayDone?: () => void;
 };
 
@@ -22,11 +26,24 @@ type AimState = {
 
 const BG_GRAD = ["#081318", "#0d1b2a"];
 
-export function GameCanvas({ state, myUserId, onShoot, onPlaceCue, assistStrength, replay, onReplayDone }: Props) {
+export function GameCanvas({
+  state,
+  myUserId,
+  onShoot,
+  onPlaceCue,
+  assistStrength,
+  shotPower,
+  onShotPowerChange,
+  replay,
+  inputLocked = false,
+  lockLabel = null,
+  onReplayDone
+}: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [aim, setAim] = useState<AimState>({ active: false, angle: 0, power: 0.35 });
-  const [replayFrameIndex, setReplayFrameIndex] = useState(0);
+  const [replayProgress, setReplayProgress] = useState(0);
+  const displayPower = shotPower ?? aim.power;
 
   const isMyTurn = useMemo(() => {
     if (!state || !myUserId) return false;
@@ -35,7 +52,7 @@ export function GameCanvas({ state, myUserId, onShoot, onPlaceCue, assistStrengt
 
   useEffect(() => {
     if (!replay || replay.frames.length === 0) {
-      setReplayFrameIndex(0);
+      setReplayProgress(0);
       return;
     }
 
@@ -46,9 +63,9 @@ export function GameCanvas({ state, myUserId, onShoot, onPlaceCue, assistStrengt
 
     const tick = (now: number) => {
       const elapsed = now - startedAt;
-      const idx = Math.min(replay.frames.length - 1, Math.floor(elapsed / frameDurationMs));
-      setReplayFrameIndex(idx);
-      if (idx < replay.frames.length - 1) {
+      const progress = Math.min(replay.frames.length - 1, elapsed / frameDurationMs);
+      setReplayProgress(progress);
+      if (progress < replay.frames.length - 1) {
         raf = window.requestAnimationFrame(tick);
       } else if (!finished) {
         finished = true;
@@ -59,6 +76,32 @@ export function GameCanvas({ state, myUserId, onShoot, onPlaceCue, assistStrengt
     raf = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(raf);
   }, [replay, onReplayDone]);
+
+  const interpolatedReplayBalls = useMemo(() => {
+    if (!replay || replay.frames.length === 0) return null;
+    const base = Math.floor(replayProgress);
+    const next = Math.min(replay.frames.length - 1, base + 1);
+    const alpha = Math.max(0, Math.min(1, replayProgress - base));
+    const a = replay.frames[base] ?? replay.frames[0];
+    const b = replay.frames[next] ?? a;
+    if (!a || !b) return null;
+
+    return a.map((ball, idx) => {
+      const nb = b[idx] ?? ball;
+      return {
+        ...ball,
+        pocketed: nb.pocketed,
+        pos: {
+          x: ball.pos.x + (nb.pos.x - ball.pos.x) * alpha,
+          y: ball.pos.y + (nb.pos.y - ball.pos.y) * alpha
+        },
+        vel: {
+          x: ball.vel.x + (nb.vel.x - ball.vel.x) * alpha,
+          y: ball.vel.y + (nb.vel.y - ball.vel.y) * alpha
+        }
+      };
+    });
+  }, [replay, replayProgress]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -139,13 +182,13 @@ export function GameCanvas({ state, myUserId, onShoot, onPlaceCue, assistStrengt
         ctx.beginPath();
         ctx.moveTo(cue.pos.x - Math.cos(aim.angle) * 26, cue.pos.y - Math.sin(aim.angle) * 26);
         ctx.lineTo(
-          cue.pos.x - Math.cos(aim.angle) * (220 + aim.power * 40),
-          cue.pos.y - Math.sin(aim.angle) * (220 + aim.power * 40)
+          cue.pos.x - Math.cos(aim.angle) * (220 + displayPower * 40),
+          cue.pos.y - Math.sin(aim.angle) * (220 + displayPower * 40)
         );
         ctx.stroke();
       }
 
-      const renderBalls = replay && replay.frames[replayFrameIndex] ? replay.frames[replayFrameIndex] : state.balls;
+      const renderBalls = interpolatedReplayBalls ?? state.balls;
       for (const ball of renderBalls) {
         if (ball.pocketed) continue;
         ctx.beginPath();
@@ -172,7 +215,7 @@ export function GameCanvas({ state, myUserId, onShoot, onPlaceCue, assistStrengt
     draw();
     window.addEventListener("resize", draw);
     return () => window.removeEventListener("resize", draw);
-  }, [state, aim, isMyTurn, assistStrength, replay, replayFrameIndex]);
+  }, [state, aim, isMyTurn, assistStrength, interpolatedReplayBalls, displayPower]);
 
   const pointerToTable = (e: PointerEvent): { x: number; y: number } | null => {
     if (!state) return null;
@@ -192,7 +235,7 @@ export function GameCanvas({ state, myUserId, onShoot, onPlaceCue, assistStrengt
   };
 
   const onDown = (e: PointerEvent) => {
-    if (!state || !isMyTurn) return;
+    if (!state || !isMyTurn || inputLocked) return;
     const p = pointerToTable(e);
     if (!p) return;
 
@@ -206,11 +249,11 @@ export function GameCanvas({ state, myUserId, onShoot, onPlaceCue, assistStrengt
     const dx = p.x - cue.pos.x;
     const dy = p.y - cue.pos.y;
     const angle = Math.atan2(dy, dx);
-    setAim({ active: true, angle, power: 0.35 });
+    setAim((prev) => ({ ...prev, active: true, angle }));
   };
 
   const onMove = (e: PointerEvent) => {
-    if (!state || !aim.active || !isMyTurn) return;
+    if (!state || !aim.active || !isMyTurn || inputLocked) return;
     const p = pointerToTable(e);
     if (!p) return;
 
@@ -220,28 +263,54 @@ export function GameCanvas({ state, myUserId, onShoot, onPlaceCue, assistStrengt
     const dy = p.y - cue.pos.y;
     const drag = Math.hypot(dx, dy);
     const angle = Math.atan2(dy, dx);
-    setAim((prev) => ({ ...prev, angle, power: Math.min(1, Math.max(0.08, drag / 250)) }));
+    const dragPower = Math.min(1, Math.max(0.08, drag / 250));
+    if (onShotPowerChange) {
+      setAim((prev) => ({ ...prev, angle }));
+    } else {
+      setAim((prev) => ({ ...prev, angle, power: dragPower }));
+    }
   };
 
   const onUp = () => {
-    if (!state || !isMyTurn || !aim.active) return;
+    if (!state || !isMyTurn || !aim.active || inputLocked) return;
     setAim((prev) => ({ ...prev, active: false }));
-    onShoot({ angle: aim.angle, power: aim.power, spin: { x: 0, y: 0 } });
+    onShoot({ angle: aim.angle, power: displayPower, spin: { x: 0, y: 0 } });
   };
 
   return (
     <div ref={wrapRef} className="relative w-full">
       <canvas
         ref={canvasRef}
-        className="w-full rounded-2xl shadow-glow touch-none"
+        className={`w-full rounded-2xl shadow-glow touch-none ${inputLocked ? "opacity-95" : ""}`}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerCancel={onUp}
       />
       <div className="absolute right-3 top-3 rounded-xl bg-black/45 px-3 py-2 text-xs text-white/90">
-        Power: {Math.round(aim.power * 100)}%
+        Power: {Math.round(displayPower * 100)}%
       </div>
+      {onShotPowerChange && (
+        <div className="absolute bottom-3 right-3 rounded-xl border border-white/15 bg-black/45 px-2 py-2">
+          <label className="mb-1 block text-center text-[10px] uppercase tracking-wide text-white/70">Force</label>
+          <input
+            aria-label="Shot power"
+            type="range"
+            min={0.08}
+            max={1}
+            step={0.01}
+            value={displayPower}
+            disabled={inputLocked || !isMyTurn}
+            onChange={(e) => onShotPowerChange(Number(e.target.value))}
+            className="h-28 w-4 cursor-pointer appearance-none rounded-full bg-white/20 accent-[#d6b56f] [writing-mode:bt-lr] [-webkit-appearance:slider-vertical]"
+          />
+        </div>
+      )}
+      {inputLocked && (
+        <div className="absolute left-3 top-3 rounded-xl bg-black/55 px-3 py-2 text-xs text-white/90">
+          {lockLabel || "Shot in progress..."}
+        </div>
+      )}
     </div>
   );
 }

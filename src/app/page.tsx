@@ -28,6 +28,7 @@ type Me = {
 export default function HomePage() {
   const [me, setMe] = useState<Me | null>(null);
   const [assistStrength, setAssistStrength] = useState(0.65);
+  const [shotPower, setShotPower] = useState(0.42);
   const [mode, setMode] = useState<"online" | "sandbox">("online");
   const [localState, setLocalState] = useState<MatchState | null>(null);
   const [localReplay, setLocalReplay] = useState<{ id: string; frames: MatchState["balls"][]; fps: number } | null>(null);
@@ -52,6 +53,9 @@ export default function HomePage() {
 
   const onShoot = (shot: ShotInput) => {
     if (!currentState || !me) return;
+
+    if (mode === "online" && socket.shotLocked) return;
+    if (mode === "sandbox" && localReplay) return;
     arenaAudio.cueHit();
 
     if (mode === "online") {
@@ -73,7 +77,9 @@ export default function HomePage() {
     const outcome = adjudicateShot(next, {
       pocketed,
       firstContact: firstContact && "targetBallId" in firstContact ? firstContact.targetBallId : null,
-      scratched
+      scratched,
+      cushionHits: sim.events.filter((e) => e.type === "cushion").length,
+      isBreakShot: !next.breakDone
     });
     applyOutcomeToTurn(next, outcome);
     const fps = 30;
@@ -152,7 +158,9 @@ export default function HomePage() {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm text-white/80">
           <div>
             {currentState
-              ? `Turn: ${currentState.players[currentState.currentTurn]?.username}`
+              ? currentState.shotInProgress
+                ? `Turn: ${currentState.players[currentState.currentTurn]?.username} | shot resolving`
+                : `Turn: ${currentState.players[currentState.currentTurn]?.username}`
               : mode === "online"
                 ? "Join queue to start a match"
                 : "Sandbox ready"}
@@ -176,7 +184,11 @@ export default function HomePage() {
           onShoot={onShoot}
           onPlaceCue={onPlaceCue}
           assistStrength={assistStrength}
+          shotPower={shotPower}
+          onShotPowerChange={setShotPower}
           replay={mode === "online" ? socket.replay : localReplay}
+          inputLocked={mode === "online" ? socket.shotLocked : Boolean(localReplay)}
+          lockLabel={mode === "online" ? "Waiting for shot result..." : "Playing shot..."}
           onReplayDone={() => {
             if (mode === "online") socket.clearReplay();
             else setLocalReplay(null);
@@ -198,7 +210,9 @@ export default function HomePage() {
               {socket.queue.inQueue
                 ? `Searching for opponent... ETA ${socket.queue.eta ?? "--"}s`
                 : socket.matchFound
-                  ? "Match found"
+                  ? socket.shotLocked
+                    ? "Shot resolving..."
+                    : "Match found"
                   : "Ready"}
             </span>
             {socket.result && (
@@ -206,6 +220,22 @@ export default function HomePage() {
                 Rematch
               </button>
             )}
+          </div>
+        )}
+
+        {mode === "online" && socket.shotError && (
+          <div className="mt-3 rounded-xl border border-amber-300/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+            Shot rejected: {socket.shotError}
+          </div>
+        )}
+
+        {currentState?.lastOutcome && (
+          <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/85">
+            {currentState.lastOutcome.foul
+              ? `Foul: ${currentState.lastOutcome.reason || "Rule violation"}`
+              : currentState.lastOutcome.turnContinues
+                ? "Great shot. Turn continues."
+                : "Turn passed to opponent."}
           </div>
         )}
 

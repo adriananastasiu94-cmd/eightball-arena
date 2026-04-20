@@ -61,6 +61,7 @@ export type MatchState = {
   table: TableConfig;
   balls: BallState[];
   ballInHand: boolean;
+  shotInProgress: boolean;
   breakDone: boolean;
   lastOutcome: ShotOutcome | null;
 };

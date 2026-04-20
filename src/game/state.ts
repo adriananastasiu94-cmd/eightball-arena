@@ -56,6 +56,7 @@ export function createMatchState(matchId: string, players: [PlayerState, PlayerS
     table: TABLE,
     balls: createInitialBalls(),
     ballInHand: false,
+    shotInProgress: false,
     breakDone: false,
     lastOutcome: null
   };

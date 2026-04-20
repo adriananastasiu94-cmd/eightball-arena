@@ -17,6 +17,7 @@ export class MatchRoom {
   readonly socketsByUser = new Map<string, string>();
   private rematchVotes = new Set<string>();
   private disconnectTimers = new Map<string, NodeJS.Timeout>();
+  private shotUnlockTimer: NodeJS.Timeout | null = null;
   state: MatchState;
 
   constructor(
@@ -70,7 +71,7 @@ export class MatchRoom {
 
   handleBallInHand(userId: string, x: number, y: number): void {
     const playerIndex = this.state.players.findIndex((p) => p.userId === userId);
-    if (playerIndex !== this.state.currentTurn || !this.state.ballInHand) return;
+    if (playerIndex !== this.state.currentTurn || !this.state.ballInHand || this.state.shotInProgress) return;
     const cue = this.state.balls.find((b) => b.kind === "cue");
     if (!cue) return;
 
@@ -85,6 +86,11 @@ export class MatchRoom {
 
   handleShot(userId: string, shot: ShotInput): void {
     if (this.state.phase === "round_end") return;
+    if (this.state.shotInProgress) {
+      this.io.to(this.socketsByUser.get(userId) ?? "").emit("match:shot-rejected", { reason: "Shot in progress" });
+      return;
+    }
+
     const playerIndex = this.state.players.findIndex((p) => p.userId === userId);
     if (playerIndex !== this.state.currentTurn) return;
 
@@ -92,6 +98,9 @@ export class MatchRoom {
       this.io.to(this.socketsByUser.get(userId) ?? "").emit("match:shot-rejected", { reason: "Invalid shot" });
       return;
     }
+
+    this.state.shotInProgress = true;
+    this.broadcastState();
 
     // Authoritative flow: validate -> simulate -> adjudicate rules -> broadcast one true state.
     const ballsAfterImpulse = applyCueImpulse(this.state.balls, shot.angle, shot.power, shot.spin);
@@ -101,28 +110,46 @@ export class MatchRoom {
     const replayFrames = sim.frames
       .filter((_, idx) => idx % sampleStep === 0 || idx === sim.frames.length - 1)
       .map((frame) => frame.map((b) => ({ ...b, pos: { ...b.pos }, vel: { ...b.vel } })));
+    const replayDurationMs = Math.max(300, Math.round((replayFrames.length / replayFps) * 1000));
 
     const pocketed = sim.events.filter((e) => e.type === "pocket").map((e) => e.ballId);
     const firstContactEvent = sim.events.find((e) => e.type === "first_contact") as { targetBallId: number } | undefined;
     const cuePocketed = sim.finalBalls.find((b) => b.kind === "cue")?.pocketed ?? false;
+    const cushionHits = sim.events.filter((e) => e.type === "cushion").length;
 
     this.state.balls = sim.finalBalls;
     const outcome = adjudicateShot(this.state, {
       pocketed,
       firstContact: firstContactEvent?.targetBallId ?? null,
-      scratched: cuePocketed
+      scratched: cuePocketed,
+      cushionHits,
+      isBreakShot: !this.state.breakDone
     });
     applyOutcomeToTurn(this.state, outcome);
 
-    this.io.to(this.id).emit("match:replay", { frames: replayFrames, fps: replayFps });
+    this.io.to(this.id).emit("match:replay", { frames: replayFrames, fps: replayFps, durationMs: replayDurationMs });
     this.broadcastState();
+    this.scheduleShotUnlock(replayDurationMs);
 
     if (outcome.winnerUserId) {
       this.finish(outcome.winnerUserId, outcome.legalEight ? "8_ball" : "foul_on_8");
     }
   }
 
+  private scheduleShotUnlock(delayMs: number): void {
+    if (this.shotUnlockTimer) clearTimeout(this.shotUnlockTimer);
+    this.shotUnlockTimer = setTimeout(() => {
+      this.state.shotInProgress = false;
+      this.broadcastState();
+    }, delayMs);
+  }
+
   private async finish(winnerUserId: string | null, reason: string) {
+    if (this.shotUnlockTimer) {
+      clearTimeout(this.shotUnlockTimer);
+      this.shotUnlockTimer = null;
+    }
+    this.state.shotInProgress = false;
     this.state.phase = "round_end";
     this.broadcastState();
     this.io.to(this.id).emit("match:ended", { winnerUserId, reason });

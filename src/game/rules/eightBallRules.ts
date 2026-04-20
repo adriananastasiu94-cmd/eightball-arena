@@ -4,6 +4,8 @@ type OutcomeInput = {
   pocketed: number[];
   firstContact: number | null;
   scratched: boolean;
+  cushionHits: number;
+  isBreakShot: boolean;
 };
 
 function groupOfBall(n: number): "solids" | "stripes" | null {
@@ -17,6 +19,7 @@ function ballsRemaining(state: MatchState, group: "solids" | "stripes"): number 
 }
 
 function assignGroups(state: MatchState, pocketed: number[]) {
+  if (!state.breakDone) return;
   const turnPlayer = state.players[state.currentTurn];
   const oppPlayer = state.players[1 - state.currentTurn];
   if (turnPlayer.group) return;
@@ -39,6 +42,8 @@ export function adjudicateShot(state: MatchState, input: OutcomeInput): ShotOutc
   const pocketed = input.pocketed;
   const scratched = input.scratched;
   const firstContact = input.firstContact;
+  const isBreakShot = input.isBreakShot;
+  const cushionHits = input.cushionHits;
 
   assignGroups(state, pocketed);
 
@@ -53,9 +58,24 @@ export function adjudicateShot(state: MatchState, input: OutcomeInput): ShotOutc
     reason = "Scratch";
   }
 
+  if (!foul && firstContact === null) {
+    foul = true;
+    reason = "No object ball hit";
+  }
+
   if (!foul && expectedFirst && firstGroup && expectedFirst !== firstGroup && firstContact !== 8) {
     foul = true;
     reason = "Wrong first contact";
+  }
+
+  if (!foul && firstContact === 8 && turnPlayer.group && ballsRemaining(state, turnPlayer.group) > 0) {
+    foul = true;
+    reason = "Illegal first contact on 8-ball";
+  }
+
+  if (!foul && isBreakShot && pocketed.length === 0 && cushionHits < 4) {
+    foul = true;
+    reason = "Illegal break";
   }
 
   const pocketedOwn = turnPlayer.group

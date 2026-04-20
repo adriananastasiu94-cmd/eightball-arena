@@ -4,7 +4,8 @@ import { vec } from "./vector";
 
 export type SimulationEvent =
   | { type: "pocket"; ballId: number }
-  | { type: "first_contact"; targetBallId: number };
+  | { type: "first_contact"; targetBallId: number }
+  | { type: "cushion"; ballId: number };
 
 export type SimulationResult = {
   frames: BallState[][];
@@ -29,10 +30,17 @@ function resolveBallCollision(a: BallState, b: BallState): boolean {
   const delta = vec.sub(b.pos, a.pos);
   const dist = vec.len(delta);
   const minDist = a.radius + b.radius;
-  if (dist <= 0 || dist >= minDist) return false;
+  if (dist >= minDist) return false;
 
-  const n = vec.scale(delta, 1 / dist);
-  const overlap = minDist - dist;
+  let n: Vec2;
+  if (dist < 1e-6) {
+    n = vec.norm(vec.sub(b.vel, a.vel));
+    if (vec.len(n) < 1e-6) n = { x: 1, y: 0 };
+  } else {
+    n = vec.scale(delta, 1 / dist);
+  }
+
+  const overlap = minDist - Math.max(dist, 1e-6);
   a.pos = vec.add(a.pos, vec.scale(n, -overlap * 0.5));
   b.pos = vec.add(b.pos, vec.scale(n, overlap * 0.5));
 
@@ -47,6 +55,24 @@ function resolveBallCollision(a: BallState, b: BallState): boolean {
   return true;
 }
 
+function isNearPocketLaneY(y: number, table: TableConfig): boolean {
+  const mouth = table.pocketRadius * PHYSICS.pocketMouthScale;
+  return (
+    Math.abs(y - table.rail) <= mouth ||
+    Math.abs(y - table.height / 2) <= mouth ||
+    Math.abs(y - (table.height - table.rail)) <= mouth
+  );
+}
+
+function isNearPocketLaneX(x: number, table: TableConfig): boolean {
+  const mouth = table.pocketRadius * PHYSICS.pocketMouthScale;
+  return (
+    Math.abs(x - table.rail) <= mouth ||
+    Math.abs(x - table.width / 2) <= mouth ||
+    Math.abs(x - (table.width - table.rail)) <= mouth
+  );
+}
+
 function resolveCushion(ball: BallState, table: TableConfig): boolean {
   if (ball.pocketed) return false;
   const left = table.rail + ball.radius;
@@ -55,23 +81,27 @@ function resolveCushion(ball: BallState, table: TableConfig): boolean {
   const bottom = table.height - table.rail - ball.radius;
   let hit = false;
 
-  if (ball.pos.x < left) {
+  if (ball.pos.x < left && !isNearPocketLaneY(ball.pos.y, table)) {
     ball.pos.x = left;
     ball.vel.x = Math.abs(ball.vel.x) * PHYSICS.restitutionCushion;
+    ball.vel.y *= PHYSICS.railFrictionOnImpact;
     hit = true;
-  } else if (ball.pos.x > right) {
+  } else if (ball.pos.x > right && !isNearPocketLaneY(ball.pos.y, table)) {
     ball.pos.x = right;
     ball.vel.x = -Math.abs(ball.vel.x) * PHYSICS.restitutionCushion;
+    ball.vel.y *= PHYSICS.railFrictionOnImpact;
     hit = true;
   }
 
-  if (ball.pos.y < top) {
+  if (ball.pos.y < top && !isNearPocketLaneX(ball.pos.x, table)) {
     ball.pos.y = top;
     ball.vel.y = Math.abs(ball.vel.y) * PHYSICS.restitutionCushion;
+    ball.vel.x *= PHYSICS.railFrictionOnImpact;
     hit = true;
-  } else if (ball.pos.y > bottom) {
+  } else if (ball.pos.y > bottom && !isNearPocketLaneX(ball.pos.x, table)) {
     ball.pos.y = bottom;
     ball.vel.y = -Math.abs(ball.vel.y) * PHYSICS.restitutionCushion;
+    ball.vel.x *= PHYSICS.railFrictionOnImpact;
     hit = true;
   }
 
@@ -83,6 +113,11 @@ function applyFriction(ball: BallState, dt: number): void {
   const factor = Math.pow(PHYSICS.frictionPerSecond, dt);
   ball.vel.x *= factor;
   ball.vel.y *= factor;
+  const speed = Math.hypot(ball.vel.x, ball.vel.y);
+  if (speed < PHYSICS.minVelocity * 2) {
+    ball.vel.x *= 0.96;
+    ball.vel.y *= 0.96;
+  }
   if (Math.hypot(ball.vel.x, ball.vel.y) < PHYSICS.minVelocity) {
     ball.vel = { x: 0, y: 0 };
   }
@@ -91,7 +126,16 @@ function applyFriction(ball: BallState, dt: number): void {
 function resolvePocket(ball: BallState, table: TableConfig): boolean {
   if (ball.pocketed) return false;
   for (const p of pockets(table)) {
-    if (Math.hypot(ball.pos.x - p.x, ball.pos.y - p.y) <= table.pocketRadius) {
+    const toPocket = vec.sub(p, ball.pos);
+    const dist = vec.len(toPocket);
+    const mouth = table.pocketRadius * PHYSICS.pocketMouthScale;
+    if (dist <= mouth && dist > 1e-6) {
+      const pullFactor = ((mouth - dist) / mouth) * PHYSICS.pocketPullStrength;
+      const pull = vec.scale(toPocket, pullFactor / dist);
+      ball.vel = vec.add(ball.vel, pull);
+    }
+
+    if (dist <= table.pocketRadius * PHYSICS.pocketCaptureScale) {
       ball.pocketed = true;
       ball.vel = { x: 0, y: 0 };
       return true;
@@ -120,7 +164,9 @@ export function simulateShot(
     for (const ball of balls) {
       if (ball.pocketed) continue;
       ball.pos = vec.add(ball.pos, vec.scale(ball.vel, dt));
-      resolveCushion(ball, table);
+      if (resolveCushion(ball, table)) {
+        events.push({ type: "cushion", ballId: ball.id });
+      }
       if (resolvePocket(ball, table)) {
         events.push({ type: "pocket", ballId: ball.id });
       }
