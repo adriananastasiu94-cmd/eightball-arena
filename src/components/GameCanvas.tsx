@@ -50,6 +50,8 @@ export function GameCanvas({
   const aimRef = useRef<AimState>(aim);
   const aimSyncRaf = useRef<number | null>(null);
   const rollAngleRef = useRef<Map<number, number>>(new Map());
+  const rollDirRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const replayDoneRef = useRef<Props["onReplayDone"]>(onReplayDone);
   const lastFrameRef = useRef<number>(0);
   const [replayProgress, setReplayProgress] = useState(0);
   const displayPower = shotPower ?? aim.power;
@@ -87,6 +89,10 @@ export function GameCanvas({
   }, [aim]);
 
   useEffect(() => {
+    replayDoneRef.current = onReplayDone;
+  }, [onReplayDone]);
+
+  useEffect(() => {
     return () => {
       if (aimSyncRaf.current !== null) window.cancelAnimationFrame(aimSyncRaf.current);
     };
@@ -111,13 +117,13 @@ export function GameCanvas({
         raf = window.requestAnimationFrame(tick);
       } else if (!finished) {
         finished = true;
-        window.setTimeout(() => onReplayDone?.(), frameDurationMs);
+        window.setTimeout(() => replayDoneRef.current?.(), frameDurationMs);
       }
     };
 
     raf = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(raf);
-  }, [replay, onReplayDone]);
+  }, [replay]);
 
   const interpolatedReplayBalls = useMemo(() => {
     if (!replay || replay.frames.length === 0) return null;
@@ -310,6 +316,15 @@ export function GameCanvas({
         const currentRoll = rollAngleRef.current.get(ball.id) ?? 0;
         const nextRoll = currentRoll + (speed * dt) / Math.max(1, ball.radius) * 0.9;
         rollAngleRef.current.set(ball.id, nextRoll);
+        const prevDir = rollDirRef.current.get(ball.id) ?? { x: 1, y: 0 };
+        const dir =
+          speed > 0.01
+            ? { x: ball.vel.x / speed, y: ball.vel.y / speed }
+            : prevDir;
+        rollDirRef.current.set(ball.id, dir);
+        const perp = { x: -dir.y, y: dir.x };
+        const spin = Math.sin(nextRoll);
+        const wobble = Math.cos(nextRoll * 0.55);
 
         ctx.beginPath();
         ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
@@ -322,21 +337,30 @@ export function GameCanvas({
           ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
           ctx.clip();
           ctx.fillStyle = baseColor;
-          const bandH = ball.radius * 0.96;
-          ctx.fillRect(ball.pos.x - ball.radius, ball.pos.y - bandH / 2, ball.radius * 2, bandH);
+          const bandH = ball.radius * 0.9;
+          const bandOffset = spin * ball.radius * 0.22;
+          ctx.save();
+          ctx.translate(ball.pos.x + dir.x * bandOffset, ball.pos.y + dir.y * bandOffset);
+          ctx.rotate(Math.atan2(dir.y, dir.x));
+          ctx.fillRect(-ball.radius, -bandH / 2, ball.radius * 2, bandH);
+          ctx.restore();
           ctx.restore();
         }
 
         if (!isCue) {
+          const labelOffset = {
+            x: dir.x * spin * ball.radius * 0.34 + perp.x * wobble * ball.radius * 0.11,
+            y: dir.y * spin * ball.radius * 0.34 + perp.y * wobble * ball.radius * 0.11
+          };
           ctx.fillStyle = "#ffffff";
           ctx.beginPath();
-          ctx.arc(ball.pos.x, ball.pos.y, Math.max(2.2, ball.radius * 0.42), 0, Math.PI * 2);
+          ctx.arc(ball.pos.x + labelOffset.x, ball.pos.y + labelOffset.y, Math.max(2.2, ball.radius * 0.42), 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = "#11161f";
           ctx.font = `${Math.max(8, ball.radius * 0.95)}px sans-serif`;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
-          ctx.fillText(String(ball.number), ball.pos.x, ball.pos.y + 0.5);
+          ctx.fillText(String(ball.number), ball.pos.x + labelOffset.x, ball.pos.y + labelOffset.y + 0.5);
         }
 
         const rollR = ball.radius * 0.5;
