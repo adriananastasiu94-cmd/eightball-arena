@@ -8,13 +8,21 @@ export type CueCatalogEntry = {
   price: number;
   currency: CueCurrency;
   group: CueGroup;
+  countryTheme: string;
+  flagColors: [string, string, string];
   butt: string;
   shaft: string;
   tip: string;
   accent: string;
 };
 
-type RawCue = Omit<CueCatalogEntry, "id" | "butt" | "shaft" | "tip" | "accent">;
+type RawCue = {
+  name: string;
+  level: number;
+  price: number;
+  currency: CueCurrency;
+  group: CueGroup;
+};
 
 const STANDARD: RawCue[] = [
   { name: "Beginner Cue", level: 1, price: 0, currency: "coins", group: "standard" },
@@ -119,6 +127,29 @@ const COUNTRY: RawCue[] = COUNTRIES.map((country) => ({
   group: "country"
 }));
 
+const FLAG_THEMES: { country: string; colors: [string, string, string] }[] = [
+  { country: "USA", colors: ["#b22234", "#ffffff", "#3c3b6e"] },
+  { country: "UK", colors: ["#012169", "#ffffff", "#c8102e"] },
+  { country: "Germany", colors: ["#000000", "#dd0000", "#ffce00"] },
+  { country: "France", colors: ["#0055a4", "#ffffff", "#ef4135"] },
+  { country: "Italy", colors: ["#009246", "#ffffff", "#ce2b37"] },
+  { country: "Spain", colors: ["#aa151b", "#f1bf00", "#aa151b"] },
+  { country: "Romania", colors: ["#002b7f", "#fcd116", "#ce1126"] },
+  { country: "Brazil", colors: ["#009b3a", "#ffdf00", "#002776"] },
+  { country: "Argentina", colors: ["#75aadb", "#ffffff", "#75aadb"] },
+  { country: "Japan", colors: ["#ffffff", "#bc002d", "#ffffff"] },
+  { country: "Canada", colors: ["#d80621", "#ffffff", "#d80621"] },
+  { country: "Sweden", colors: ["#006aa7", "#fecc00", "#006aa7"] },
+  { country: "Norway", colors: ["#ba0c2f", "#ffffff", "#00205b"] },
+  { country: "Netherlands", colors: ["#ae1c28", "#ffffff", "#21468b"] },
+  { country: "Belgium", colors: ["#000000", "#fae042", "#ed2939"] },
+  { country: "Ireland", colors: ["#169b62", "#ffffff", "#ff883e"] },
+  { country: "Portugal", colors: ["#006600", "#ff0000", "#ffcc00"] },
+  { country: "Turkey", colors: ["#e30a17", "#ffffff", "#e30a17"] },
+  { country: "UAE", colors: ["#00732f", "#ffffff", "#000000"] },
+  { country: "India", colors: ["#ff9933", "#ffffff", "#138808"] }
+];
+
 function cueId(name: string): string {
   return `cue_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")}`;
 }
@@ -130,15 +161,28 @@ function hue(seed: number, offset: number) {
 const rawCatalog = [...STANDARD, ...PREMIUM, ...COUNTRY];
 
 export const CUE_CATALOG: CueCatalogEntry[] = rawCatalog.map((cue, i) => {
-  const h1 = hue(i + 4, 18);
-  const h2 = hue(i + 13, 220);
+  const flag = FLAG_THEMES[i % FLAG_THEMES.length];
+  const woodHue = hue(i + 11, 22);
+  const woodDark = `hsl(${woodHue} 44% 30%)`;
+  const woodMid = `hsl(${woodHue} 38% 42%)`;
+  const mapleShaft = `hsl(${34 + ((i * 2) % 12)} 48% 70%)`;
+  const normalizedName =
+    cue.group === "country"
+      ? `${flag.country} National Cue`
+      : cue.group === "premium"
+        ? `${flag.country} Pro Cue`
+        : `${flag.country} Classic Cue`;
+
   return {
     ...cue,
+    name: normalizedName,
     id: cue.name === "Beginner Cue" ? "cue_beginner" : cueId(cue.name),
-    butt: `hsl(${h1} 72% 40%)`,
-    shaft: `hsl(${33 + ((i * 3) % 20)} 52% ${64 + (i % 8)}%)`,
-    tip: `hsl(${h2} 58% 60%)`,
-    accent: `hsl(${(h1 + h2) % 360} 75% 62%)`
+    countryTheme: flag.country,
+    flagColors: flag.colors,
+    butt: woodDark,
+    shaft: mapleShaft,
+    tip: "#4f5963",
+    accent: woodMid
   };
 });
 

@@ -52,6 +52,12 @@ export function GameCanvas({
   const activeCue = cueStyle ?? {
     id: "default",
     name: "Default",
+    level: 1,
+    price: 0,
+    currency: "coins" as const,
+    group: "standard" as const,
+    countryTheme: "Arena",
+    flagColors: ["#d04b42", "#f5f5f5", "#2e5fbd"] as [string, string, string],
     butt: ARENA_THEME.cueStick,
     shaft: "#e8d4a8",
     tip: "#4f5963",
@@ -218,6 +224,18 @@ export function GameCanvas({
           cue.pos.y - Math.sin(aim.angle) * (190 + displayPower * 30)
         );
         ctx.stroke();
+
+        const flagBandStarts = [98, 114, 130];
+        for (let i = 0; i < activeCue.flagColors.length; i += 1) {
+          const start = flagBandStarts[i] ?? 98 + i * 16;
+          const end = start + 10;
+          ctx.strokeStyle = activeCue.flagColors[i];
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(cue.pos.x - Math.cos(aim.angle) * start, cue.pos.y - Math.sin(aim.angle) * start);
+          ctx.lineTo(cue.pos.x - Math.cos(aim.angle) * end, cue.pos.y - Math.sin(aim.angle) * end);
+          ctx.stroke();
+        }
       }
 
       const renderBalls = interpolatedReplayBalls ?? state.balls;

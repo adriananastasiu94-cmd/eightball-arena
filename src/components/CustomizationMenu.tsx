@@ -118,6 +118,12 @@ export function CustomizationMenu({
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <span className="rounded-md border border-white/20 bg-white/10 px-2 py-0.5 text-[11px] text-white/85">{cue.countryTheme}</span>
+                      <div className="flex items-center overflow-hidden rounded border border-white/20">
+                        {cue.flagColors.map((color) => (
+                          <span key={`${cue.id}-${color}`} className="h-3 w-3" style={{ backgroundColor: color }} />
+                        ))}
+                      </div>
                       <span className="rounded-md border border-white/20 bg-white/10 px-2 py-0.5 text-[11px] text-white/85">
                         {cue.price.toLocaleString()} {cue.currency === "coins" ? "coins" : "cash"}
                       </span>
