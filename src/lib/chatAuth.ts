@@ -9,15 +9,22 @@ const chatUserSchema = z.object({
 
 export type ChatUser = z.infer<typeof chatUserSchema>;
 
-export async function chatLogin(email: string, password: string): Promise<{ token: string; user: ChatUser }> {
-  const base = process.env.CHAT_API_URL;
-  if (!base) throw new Error("CHAT_API_URL is not configured");
+function chatBaseUrl(): string {
+  return process.env.CHAT_API_URL || "https://chordchat-api.onrender.com";
+}
 
-  const res = await fetch(`${base}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password })
-  });
+export async function chatLogin(email: string, password: string): Promise<{ token: string; user: ChatUser }> {
+  const base = chatBaseUrl();
+  let res: Response;
+  try {
+    res = await fetch(`${base}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+  } catch {
+    throw new Error("CHAT_UNREACHABLE");
+  }
 
   if (!res.ok) throw new Error("Invalid chat credentials");
   const json = await res.json();
@@ -30,12 +37,15 @@ export async function chatLogin(email: string, password: string): Promise<{ toke
 }
 
 export async function chatMe(token: string): Promise<ChatUser> {
-  const base = process.env.CHAT_API_URL;
-  if (!base) throw new Error("CHAT_API_URL is not configured");
-
-  const res = await fetch(`${base}/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
+  const base = chatBaseUrl();
+  let res: Response;
+  try {
+    res = await fetch(`${base}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  } catch {
+    throw new Error("CHAT_UNREACHABLE");
+  }
 
   if (!res.ok) throw new Error("Chat session is invalid");
   const json = await res.json();

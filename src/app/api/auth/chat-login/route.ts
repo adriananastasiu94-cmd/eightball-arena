@@ -30,7 +30,10 @@ export async function POST(request: NextRequest) {
       maxAge: 60 * 60 * 24 * 7
     });
     return response;
-  } catch {
+  } catch (error) {
+    if ((error as Error).message === "CHAT_UNREACHABLE") {
+      return NextResponse.json({ error: "Chat service unavailable. Please try again shortly." }, { status: 502 });
+    }
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
 }
