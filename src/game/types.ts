@@ -19,6 +19,13 @@ export type PlayerState = {
   username: string;
   group: PlayerGroup;
   wins: number;
+  profile?: {
+    wins: number;
+    losses: number;
+    matchesPlayed: number;
+    level: number;
+    region: string;
+  };
 };
 
 export type ShotInput = {
@@ -58,6 +65,8 @@ export type MatchState = {
   players: [PlayerState, PlayerState];
   currentTurn: number;
   shotCount: number;
+  turnDeadlineMs: number | null;
+  timeoutStrikes: [number, number];
   phase: GamePhase;
   table: TableConfig;
   balls: BallState[];

@@ -53,6 +53,9 @@ export function GameCanvas({
   const rollDirRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const replayDoneRef = useRef<Props["onReplayDone"]>(onReplayDone);
   const lastFrameRef = useRef<number>(0);
+  const cuePlacementRaf = useRef<number | null>(null);
+  const pendingCuePlacementRef = useRef<{ x: number; y: number } | null>(null);
+  const aimingPointerRef = useRef<number | null>(null);
   const [replayProgress, setReplayProgress] = useState(0);
   const displayPower = shotPower ?? aim.power;
   const activeCue = cueStyle ?? {
@@ -95,8 +98,14 @@ export function GameCanvas({
   useEffect(() => {
     return () => {
       if (aimSyncRaf.current !== null) window.cancelAnimationFrame(aimSyncRaf.current);
+      if (cuePlacementRaf.current !== null) window.cancelAnimationFrame(cuePlacementRaf.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (state?.ballInHand) return;
+    aimingPointerRef.current = null;
+  }, [state?.ballInHand]);
 
   useEffect(() => {
     if (!replay || replay.frames.length === 0) {
@@ -188,16 +197,82 @@ export function GameCanvas({
       ctx.translate(ox, oy);
       ctx.scale(scale, scale);
 
-      ctx.fillStyle = activeTable.rail;
+      const railGrad = ctx.createLinearGradient(0, 0, 0, state.table.height);
+      railGrad.addColorStop(0, brighten(activeTable.rail, 0.12));
+      railGrad.addColorStop(0.5, activeTable.rail);
+      railGrad.addColorStop(1, darken(activeTable.rail, 0.18));
+      ctx.fillStyle = railGrad;
       ctx.fillRect(0, 0, state.table.width, state.table.height);
 
-      ctx.fillStyle = activeTable.felt;
-      ctx.fillRect(
-        state.table.rail,
-        state.table.rail,
-        state.table.width - state.table.rail * 2,
-        state.table.height - state.table.rail * 2
+      const innerRailInset = 5;
+      const railLight = ctx.createLinearGradient(0, 0, 0, state.table.height);
+      railLight.addColorStop(0, "rgba(255,255,255,0.18)");
+      railLight.addColorStop(0.25, "rgba(255,255,255,0.06)");
+      railLight.addColorStop(0.8, "rgba(0,0,0,0.18)");
+      railLight.addColorStop(1, "rgba(0,0,0,0.28)");
+      ctx.strokeStyle = railLight;
+      ctx.lineWidth = innerRailInset * 2;
+      ctx.strokeRect(
+        innerRailInset,
+        innerRailInset,
+        state.table.width - innerRailInset * 2,
+        state.table.height - innerRailInset * 2
       );
+
+      const feltX = state.table.rail;
+      const feltY = state.table.rail;
+      const feltW = state.table.width - state.table.rail * 2;
+      const feltH = state.table.height - state.table.rail * 2;
+      const feltGrad = ctx.createLinearGradient(feltX, feltY, feltX, feltY + feltH);
+      feltGrad.addColorStop(0, brighten(activeTable.felt, 0.12));
+      feltGrad.addColorStop(0.5, activeTable.felt);
+      feltGrad.addColorStop(1, darken(activeTable.felt, 0.14));
+      ctx.fillStyle = feltGrad;
+      ctx.fillRect(feltX, feltY, feltW, feltH);
+
+      ctx.strokeStyle = "rgba(255,255,255,0.06)";
+      ctx.lineWidth = 0.9;
+      for (let i = 1; i <= 14; i += 1) {
+        const y = feltY + (feltH * i) / 15;
+        ctx.beginPath();
+        ctx.moveTo(feltX, y);
+        ctx.lineTo(feltX + feltW, y);
+        ctx.stroke();
+      }
+
+      const headStringX = feltX + feltW * 0.26;
+      ctx.strokeStyle = "rgba(255,255,255,0.12)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(headStringX, feltY + 8);
+      ctx.lineTo(headStringX, feltY + feltH - 8);
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(255,255,255,0.28)";
+      ctx.beginPath();
+      ctx.arc(headStringX, feltY + feltH * 0.5, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      const sights = [
+        [state.table.width * 0.18, state.table.rail * 0.5],
+        [state.table.width * 0.5, state.table.rail * 0.5],
+        [state.table.width * 0.82, state.table.rail * 0.5],
+        [state.table.width * 0.18, state.table.height - state.table.rail * 0.5],
+        [state.table.width * 0.5, state.table.height - state.table.rail * 0.5],
+        [state.table.width * 0.82, state.table.height - state.table.rail * 0.5],
+        [state.table.rail * 0.5, state.table.height * 0.26],
+        [state.table.rail * 0.5, state.table.height * 0.5],
+        [state.table.rail * 0.5, state.table.height * 0.74],
+        [state.table.width - state.table.rail * 0.5, state.table.height * 0.26],
+        [state.table.width - state.table.rail * 0.5, state.table.height * 0.5],
+        [state.table.width - state.table.rail * 0.5, state.table.height * 0.74]
+      ];
+      for (const [x, y] of sights) {
+        ctx.fillStyle = "rgba(248,228,181,0.74)";
+        ctx.beginPath();
+        ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       const pocketColor = activeTable.pocket;
       const pockets = [
@@ -211,13 +286,19 @@ export function GameCanvas({
 
       for (const [x, y] of pockets) {
         ctx.beginPath();
-        ctx.fillStyle = pocketColor;
+        const pocketGrad = ctx.createRadialGradient(x - 2, y - 2, state.table.pocketRadius * 0.2, x, y, state.table.pocketRadius);
+        pocketGrad.addColorStop(0, brighten(pocketColor, 0.1));
+        pocketGrad.addColorStop(1, pocketColor);
+        ctx.fillStyle = pocketGrad;
         ctx.arc(x, y, state.table.pocketRadius, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.1)";
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
       }
 
       const cue = state.balls.find((b) => b.kind === "cue" && !b.pocketed);
-      if (cue && isMyTurn && liveAim.active && !state.ballInHand) {
+      if (cue && isMyTurn && liveAim.active) {
         const previewLen = 280 * assistStrength;
         const prediction = predictFirstCollision(state.balls, cue, liveAim.angle);
 
@@ -314,17 +395,21 @@ export function GameCanvas({
         const isStripe = ball.kind === "stripe";
         const speed = Math.hypot(ball.vel.x, ball.vel.y);
         const currentRoll = rollAngleRef.current.get(ball.id) ?? 0;
-        const nextRoll = currentRoll + (speed * dt) / Math.max(1, ball.radius) * 0.9;
+        const nextRoll = speed > 0.9 ? currentRoll + (speed * dt) / Math.max(1, ball.radius) : currentRoll;
         rollAngleRef.current.set(ball.id, nextRoll);
         const prevDir = rollDirRef.current.get(ball.id) ?? { x: 1, y: 0 };
-        const dir =
-          speed > 0.01
+        const travelDir =
+          speed > 0.45
             ? { x: ball.vel.x / speed, y: ball.vel.y / speed }
             : prevDir;
+        const dir = norm({
+          x: prevDir.x * 0.84 + travelDir.x * 0.16,
+          y: prevDir.y * 0.84 + travelDir.y * 0.16
+        });
         rollDirRef.current.set(ball.id, dir);
         const perp = { x: -dir.y, y: dir.x };
-        const spin = Math.sin(nextRoll);
-        const wobble = Math.cos(nextRoll * 0.55);
+        const rollSin = Math.sin(nextRoll);
+        const rollCos = Math.cos(nextRoll);
 
         ctx.beginPath();
         ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
@@ -337,10 +422,10 @@ export function GameCanvas({
           ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
           ctx.clip();
           ctx.fillStyle = baseColor;
-          const bandH = ball.radius * 0.9;
-          const bandOffset = spin * ball.radius * 0.22;
+          const bandH = ball.radius * (0.54 + Math.abs(rollCos) * 0.42);
+          const bandOffset = rollSin * ball.radius * 0.72;
           ctx.save();
-          ctx.translate(ball.pos.x + dir.x * bandOffset, ball.pos.y + dir.y * bandOffset);
+          ctx.translate(ball.pos.x + dir.x * bandOffset, ball.pos.y + dir.y * bandOffset * 0.32);
           ctx.rotate(Math.atan2(dir.y, dir.x));
           ctx.fillRect(-ball.radius, -bandH / 2, ball.radius * 2, bandH);
           ctx.restore();
@@ -348,24 +433,39 @@ export function GameCanvas({
         }
 
         if (!isCue) {
+          const seed = (ball.number * 0.47) % (Math.PI * 2);
+          const spotPhase = nextRoll + seed;
+          const spotForward = Math.sin(spotPhase);
+          const spotDepth = Math.cos(spotPhase);
+          const frontness = (spotDepth + 1) * 0.5;
           const labelOffset = {
-            x: dir.x * spin * ball.radius * 0.34 + perp.x * wobble * ball.radius * 0.11,
-            y: dir.y * spin * ball.radius * 0.34 + perp.y * wobble * ball.radius * 0.11
+            x: dir.x * spotForward * ball.radius * 0.72 + perp.x * spotDepth * ball.radius * 0.21,
+            y: dir.y * spotForward * ball.radius * 0.28 + perp.y * spotDepth * ball.radius * 0.09
           };
-          ctx.fillStyle = "#ffffff";
-          ctx.beginPath();
-          ctx.arc(ball.pos.x + labelOffset.x, ball.pos.y + labelOffset.y, Math.max(2.2, ball.radius * 0.42), 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = "#11161f";
-          ctx.font = `${Math.max(8, ball.radius * 0.95)}px sans-serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(String(ball.number), ball.pos.x + labelOffset.x, ball.pos.y + labelOffset.y + 0.5);
+          if (frontness > 0.06) {
+            const labelR = Math.max(2.2, ball.radius * (0.2 + frontness * 0.24));
+            ctx.globalAlpha = 0.35 + frontness * 0.65;
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.arc(ball.pos.x + labelOffset.x, ball.pos.y + labelOffset.y, labelR, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.save();
+            ctx.translate(ball.pos.x + labelOffset.x, ball.pos.y + labelOffset.y);
+            ctx.rotate(Math.atan2(dir.y, dir.x) + spotPhase * 0.12);
+            ctx.fillStyle = "#11161f";
+            ctx.font = `${Math.max(7.5, ball.radius * 0.82 * (0.65 + frontness * 0.45))}px sans-serif`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(String(ball.number), 0, 0.4);
+            ctx.restore();
+            ctx.globalAlpha = 1;
+          }
         }
 
         const rollR = ball.radius * 0.5;
-        const rx = Math.cos(nextRoll) * rollR;
-        const ry = Math.sin(nextRoll) * rollR;
+        const rx = rollCos * rollR;
+        const ry = rollSin * rollR;
         ctx.fillStyle = "rgba(0,0,0,0.2)";
         ctx.beginPath();
         ctx.arc(ball.pos.x + rx * 0.32, ball.pos.y + ry * 0.32, Math.max(1.2, ball.radius * 0.15), 0, Math.PI * 2);
@@ -394,7 +494,7 @@ export function GameCanvas({
     return () => window.cancelAnimationFrame(raf);
   }, [state, isMyTurn, assistStrength, interpolatedReplayBalls, displayPower, activeCue, activeTable]);
 
-  const pointerToTable = (e: PointerEvent): { x: number; y: number } | null => {
+  const pointerToTable = (e: PointerEvent<HTMLCanvasElement>): { x: number; y: number } | null => {
     if (!state) return null;
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -411,13 +511,26 @@ export function GameCanvas({
     };
   };
 
-  const onDown = (e: PointerEvent) => {
+  const queueCuePlacement = (x: number, y: number) => {
+    pendingCuePlacementRef.current = { x, y };
+    if (cuePlacementRaf.current !== null) return;
+    cuePlacementRaf.current = window.requestAnimationFrame(() => {
+      cuePlacementRaf.current = null;
+      const placement = pendingCuePlacementRef.current;
+      if (!placement) return;
+      pendingCuePlacementRef.current = null;
+      onPlaceCue(placement.x, placement.y);
+    });
+  };
+
+  const onDown = (e: PointerEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0) return;
     if (!state || !isMyTurn || inputLocked) return;
     const p = pointerToTable(e);
     if (!p) return;
 
     if (state.ballInHand) {
-      onPlaceCue(p.x, p.y);
+      queueCuePlacement(p.x, p.y);
       return;
     }
 
@@ -426,14 +539,19 @@ export function GameCanvas({
     const dx = p.x - cue.pos.x;
     const dy = p.y - cue.pos.y;
     const angle = Math.atan2(dy, dx);
+    aimingPointerRef.current = e.pointerId;
+    e.currentTarget.setPointerCapture(e.pointerId);
     syncAim({ ...aimRef.current, active: true, angle });
   };
 
-  const onMove = (e: PointerEvent) => {
-    if (!state || !aimRef.current.active || !isMyTurn || inputLocked) return;
+  const onMove = (e: PointerEvent<HTMLCanvasElement>) => {
+    if (!state || !isMyTurn || inputLocked) return;
     const p = pointerToTable(e);
     if (!p) return;
+    if (state.ballInHand) return;
 
+    if (aimingPointerRef.current !== null && e.pointerId !== aimingPointerRef.current) return;
+    if (!aimRef.current.active) return;
     const cue = state.balls.find((b) => b.kind === "cue" && !b.pocketed);
     if (!cue) return;
     const dx = p.x - cue.pos.x;
@@ -448,11 +566,30 @@ export function GameCanvas({
     }
   };
 
-  const onUp = () => {
+  const onUp = (e: PointerEvent<HTMLCanvasElement>) => {
+    if (state?.ballInHand) {
+      return;
+    }
+
     const liveAim = aimRef.current;
+    if (aimingPointerRef.current !== null && e.pointerId !== aimingPointerRef.current) return;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    aimingPointerRef.current = null;
     if (!state || !isMyTurn || !liveAim.active || inputLocked) return;
     syncAim({ ...liveAim, active: false });
     onShoot({ angle: liveAim.angle, power: displayPower, spin: { x: 0, y: 0 } });
+  };
+
+  const onCancel = (e: PointerEvent<HTMLCanvasElement>) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    aimingPointerRef.current = null;
+    if (aimRef.current.active) {
+      syncAim({ ...aimRef.current, active: false });
+    }
   };
 
   const syncAim = (next: AimState) => {
@@ -472,7 +609,7 @@ export function GameCanvas({
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
-        onPointerCancel={onUp}
+        onPointerCancel={onCancel}
       />
       <div className="absolute right-3 top-3 rounded-xl bg-black/45 px-3 py-2 text-xs text-white/90">
         Power: {Math.round(displayPower * 100)}%
@@ -522,6 +659,31 @@ function colorForBall(number: number): string {
     default:
       return ARENA_THEME.solid;
   }
+}
+
+function norm(v: { x: number; y: number }): { x: number; y: number } {
+  const l = Math.hypot(v.x, v.y) || 1;
+  return { x: v.x / l, y: v.y / l };
+}
+
+function adjustHex(hex: string, amount: number): string {
+  if (!hex.startsWith("#")) return hex;
+  const raw = hex.slice(1);
+  const full = raw.length === 3 ? raw.split("").map((c) => `${c}${c}`).join("") : raw;
+  const value = Number.parseInt(full, 16);
+  if (!Number.isFinite(value)) return hex;
+  const r = Math.min(255, Math.max(0, ((value >> 16) & 0xff) + Math.round(255 * amount)));
+  const g = Math.min(255, Math.max(0, ((value >> 8) & 0xff) + Math.round(255 * amount)));
+  const b = Math.min(255, Math.max(0, (value & 0xff) + Math.round(255 * amount)));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function brighten(hex: string, amount: number): string {
+  return adjustHex(hex, Math.abs(amount));
+}
+
+function darken(hex: string, amount: number): string {
+  return adjustHex(hex, -Math.abs(amount));
 }
 
 function predictFirstCollision(

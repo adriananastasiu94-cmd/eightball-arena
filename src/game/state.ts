@@ -53,6 +53,8 @@ export function createMatchState(matchId: string, players: [PlayerState, PlayerS
     players,
     currentTurn: 0,
     shotCount: 0,
+    turnDeadlineMs: Date.now() + 30000,
+    timeoutStrikes: [0, 0],
     phase: "breaking",
     table: TABLE,
     balls: createInitialBalls(),

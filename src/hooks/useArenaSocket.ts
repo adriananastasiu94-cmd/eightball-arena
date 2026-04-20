@@ -16,6 +16,9 @@ export function useArenaSocket(enabled: boolean) {
   const [shotError, setShotError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const lockTimerRef = useRef<number | null>(null);
+  const shotPendingRef = useRef(false);
+  const lastReplayShotRef = useRef<number | null>(null);
+  const lastCuePlaceRef = useRef<{ x: number; y: number; t: number } | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -30,12 +33,22 @@ export function useArenaSocket(enabled: boolean) {
       setMatchFound(true);
       setResult(null);
       setShotError(null);
+      lastReplayShotRef.current = null;
+      lastCuePlaceRef.current = null;
     });
     socket.on("match:state", ({ state: nextState }) => {
       setState(nextState);
-      if (!nextState.shotInProgress) setIsShotPending(false);
+      if (!nextState.shotInProgress) {
+        shotPendingRef.current = false;
+        setIsShotPending(false);
+      }
     });
     socket.on("match:replay", (payload) => {
+      if (typeof payload.shotCount === "number") {
+        if (payload.shotCount === lastReplayShotRef.current) return;
+        lastReplayShotRef.current = payload.shotCount;
+      }
+
       const durationMs =
         typeof payload.durationMs === "number"
           ? payload.durationMs
@@ -46,13 +59,18 @@ export function useArenaSocket(enabled: boolean) {
         frames: payload.frames,
         fps: payload.fps
       });
+      shotPendingRef.current = true;
       setIsShotPending(true);
       if (lockTimerRef.current !== null) window.clearTimeout(lockTimerRef.current);
-      lockTimerRef.current = window.setTimeout(() => setIsShotPending(false), durationMs + 80);
+      lockTimerRef.current = window.setTimeout(() => {
+        shotPendingRef.current = false;
+        setIsShotPending(false);
+      }, durationMs + 80);
     });
     socket.on("match:ended", (payload) => setResult(payload));
     socket.on("match:shot-rejected", (payload) => {
       setShotError(payload.reason);
+      shotPendingRef.current = false;
       setIsShotPending(false);
     });
 
@@ -86,12 +104,24 @@ export function useArenaSocket(enabled: boolean) {
       joinQueue: () => socketRef.current?.emit("queue:join"),
       leaveQueue: () => socketRef.current?.emit("queue:leave"),
       shoot: (shot: ShotInput) => {
-        if (isShotPending || state?.shotInProgress) return;
+        if (shotPendingRef.current || state?.shotInProgress) return;
         setShotError(null);
+        shotPendingRef.current = true;
         setIsShotPending(true);
         socketRef.current?.emit("match:shot", shot);
       },
-      placeCue: (x: number, y: number) => socketRef.current?.emit("match:ball-in-hand", { x, y }),
+      placeCue: (x: number, y: number) => {
+        const now = performance.now();
+        const last = lastCuePlaceRef.current;
+        if (last) {
+          const dist = Math.hypot(x - last.x, y - last.y);
+          const dt = now - last.t;
+          if (dist < 0.75) return;
+          if (dist < 2.8 && dt < 28) return;
+        }
+        lastCuePlaceRef.current = { x, y, t: now };
+        socketRef.current?.emit("match:ball-in-hand", { x, y });
+      },
       rematch: () => socketRef.current?.emit("match:rematch"),
       clearReplay: () => setReplay(null),
       clearShotError: () => setShotError(null)

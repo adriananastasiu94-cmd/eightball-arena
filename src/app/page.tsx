@@ -46,6 +46,7 @@ export default function HomePage() {
   const [mode, setMode] = useState<"online" | "sandbox">("online");
   const [localState, setLocalState] = useState<MatchState | null>(null);
   const [localReplay, setLocalReplay] = useState<{ id: string; frames: MatchState["balls"][]; fps: number } | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const socket = useArenaSocket(Boolean(me) && mode === "online");
 
   useEffect(() => {
@@ -98,11 +99,40 @@ export default function HomePage() {
   useEffect(() => {
     if (mode !== "sandbox" || !me) return;
     const players: [PlayerState, PlayerState] = [
-      { userId: me.id, username: me.username, group: null, wins: 0 },
-      { userId: "local_opponent", username: "Practice Ghost", group: null, wins: 0 }
+      {
+        userId: me.id,
+        username: me.username,
+        group: null,
+        wins: 0,
+        profile: {
+          wins: me.stats?.wins ?? 0,
+          losses: me.stats?.losses ?? 0,
+          matchesPlayed: me.stats?.matchesPlayed ?? 0,
+          level: me.stats?.level ?? Math.max(1, Math.floor((me.stats?.xp ?? 0) / 1000) + 1),
+          region: "Global"
+        }
+      },
+      {
+        userId: "local_opponent",
+        username: "Practice Ghost",
+        group: null,
+        wins: 0,
+        profile: {
+          wins: 0,
+          losses: 0,
+          matchesPlayed: 0,
+          level: 1,
+          region: "Global"
+        }
+      }
     ];
     setLocalState(createMatchState("sandbox", players));
   }, [mode, me]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 100);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (mode !== "sandbox" || !localState || localReplay) return;
@@ -112,10 +142,6 @@ export default function HomePage() {
 
     const timeoutId = window.setTimeout(() => {
       const liveState = localState;
-      if (liveState.ballInHand) {
-        const y = liveState.table.height * (0.3 + Math.random() * 0.4);
-        onPlaceCue(liveState.table.width * 0.24, y);
-      }
 
       const cue = liveState.balls.find((b) => b.kind === "cue" && !b.pocketed);
       const targets = liveState.balls.filter((b) => !b.pocketed && b.kind !== "cue");
@@ -140,6 +166,7 @@ export default function HomePage() {
 
   const onShoot = (shot: ShotInput) => {
     if (!currentState || !me) return;
+    if (currentState.ballInHand) return;
 
     if (mode === "online" && socket.shotLocked) return;
     if (mode === "sandbox" && localReplay) return;
@@ -188,10 +215,29 @@ export default function HomePage() {
     if (!localState) return;
     const cue = localState.balls.find((b) => b.kind === "cue");
     if (!cue) return;
+    const left = localState.table.rail + cue.radius;
+    const right = localState.table.width - localState.table.rail - cue.radius;
+    const top = localState.table.rail + cue.radius;
+    const bottom = localState.table.height - localState.table.rail - cue.radius;
+    const nextPos = {
+      x: Math.max(left, Math.min(right, x)),
+      y: Math.max(top, Math.min(bottom, y))
+    };
+    const overlaps = localState.balls.some((b) => {
+      if (b.kind === "cue" || b.pocketed) return false;
+      const minDist = cue.radius + b.radius + 0.5;
+      return Math.hypot(b.pos.x - nextPos.x, b.pos.y - nextPos.y) < minDist;
+    });
+    if (overlaps) return;
     cue.pocketed = false;
     cue.vel = { x: 0, y: 0 };
-    cue.pos = { x, y };
-    setLocalState({ ...localState, balls: [...localState.balls] });
+    cue.pos = nextPos;
+    setLocalState({
+      ...localState,
+      ballInHand: false,
+      turnDeadlineMs: Date.now() + 30000,
+      balls: [...localState.balls]
+    });
   };
 
   const solidsRemaining = useMemo(() => currentState?.balls.filter((b) => !b.pocketed && b.number >= 1 && b.number <= 7).length ?? 7, [currentState]);
@@ -208,6 +254,9 @@ export default function HomePage() {
     () => currentState?.balls.filter((b) => !b.pocketed && b.kind !== "cue").length ?? 15,
     [currentState]
   );
+  const shotClockMs = 30000;
+  const activeDeadline = currentState?.turnDeadlineMs ?? null;
+  const activeRemainingMs = activeDeadline ? Math.max(0, activeDeadline - nowMs) : 0;
   const xp = me?.stats?.xp ?? 0;
   const level = Math.max(1, me?.stats?.level ?? Math.floor(xp / 1000) + 1);
   const currentLevelStart = (level - 1) * 1000;
@@ -370,12 +419,44 @@ export default function HomePage() {
               {currentState.players.map((p, idx) => (
                 <div
                   key={p.userId}
-                  className={`rounded-lg border px-3 py-2 text-sm ${idx === currentState.currentTurn ? "border-cyan-300/50 bg-cyan-500/10 text-cyan-100" : "border-white/10 bg-white/5 text-white/85"}`}
+                  className="rounded-xl p-[2px]"
+                  style={
+                    idx === currentState.currentTurn && !currentState.shotInProgress && currentState.phase !== "round_end"
+                      ? {
+                          background: `conic-gradient(from -90deg, rgba(34,211,238,0.9) 0deg ${
+                            Math.max(0, Math.min(360, (activeRemainingMs / shotClockMs) * 360))
+                          }deg, rgba(34,211,238,0.18) ${
+                            Math.max(0, Math.min(360, (activeRemainingMs / shotClockMs) * 360))
+                          }deg 360deg)`,
+                          boxShadow: "0 0 18px rgba(34,211,238,0.35)"
+                        }
+                      : undefined
+                  }
                 >
-                  <div className="font-semibold">
-                    {p.username} ({groupLabel(p.group)})
+                  <div
+                    className={`rounded-lg border px-3 py-2 text-sm ${idx === currentState.currentTurn ? "border-cyan-300/50 bg-cyan-500/10 text-cyan-100" : "border-white/10 bg-white/5 text-white/85"}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-semibold">
+                        {p.username} ({groupLabel(p.group)})
+                      </div>
+                      <div className="text-[11px] text-white/80">
+                        Clock:{" "}
+                        {idx === currentState.currentTurn && !currentState.shotInProgress && currentState.phase !== "round_end"
+                          ? `${Math.ceil(activeRemainingMs / 1000)}s`
+                          : "30s"}
+                      </div>
+                    </div>
+                    <div className="text-xs">Can shoot 8: {canShootEight(currentState, idx) ? "Yes" : "No"}</div>
+                    <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-white/80">
+                      <span>W/L: {p.profile?.wins ?? 0}/{p.profile?.losses ?? 0}</span>
+                      <span>Ratio: {ratioText(p.profile?.wins ?? 0, p.profile?.losses ?? 0)}</span>
+                      <span>Level: {p.profile?.level ?? 1}</span>
+                      <span>Games: {p.profile?.matchesPlayed ?? 0}</span>
+                      <span>Region: {p.profile?.region ?? "Global"}</span>
+                      <span>Timeouts: {currentState.timeoutStrikes[idx]}/3</span>
+                    </div>
                   </div>
-                  <div className="text-xs">Can shoot 8: {canShootEight(currentState, idx) ? "Yes" : "No"}</div>
                 </div>
               ))}
             </div>
@@ -548,6 +629,11 @@ function canShootEight(state: MatchState, playerIndex: number): boolean {
   const p = state.players[playerIndex];
   if (!p.group) return false;
   return state.balls.filter((b) => !b.pocketed && (p.group === "solids" ? b.number >= 1 && b.number <= 7 : b.number >= 9 && b.number <= 15)).length === 0;
+}
+
+function ratioText(wins: number, losses: number): string {
+  const denom = Math.max(1, losses);
+  return (wins / denom).toFixed(2);
 }
 
 function BallPip({ number }: { number: number }) {

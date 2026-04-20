@@ -52,6 +52,15 @@ function resolveBallCollision(a: BallState, b: BallState): boolean {
   const impulseVec = vec.scale(n, impulse);
   a.vel = vec.sub(a.vel, impulseVec);
   b.vel = vec.add(b.vel, impulseVec);
+
+  const tangent = { x: -n.y, y: n.x };
+  const relTan = vec.dot(vec.sub(b.vel, a.vel), tangent);
+  const tanImpulse = relTan * PHYSICS.collisionTangentialFriction * 0.5;
+  a.vel = vec.add(a.vel, vec.scale(tangent, tanImpulse));
+  b.vel = vec.sub(b.vel, vec.scale(tangent, tanImpulse));
+
+  a.vel = vec.scale(a.vel, PHYSICS.collisionEnergyRetain);
+  b.vel = vec.scale(b.vel, PHYSICS.collisionEnergyRetain);
   return true;
 }
 

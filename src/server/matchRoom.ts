@@ -12,12 +12,34 @@ type ConnectedPlayer = {
   socketId: string;
 };
 
+function canPlaceCueAt(state: MatchState, x: number, y: number): boolean {
+  const cue = state.balls.find((b) => b.kind === "cue");
+  if (!cue) return false;
+
+  const left = state.table.rail + cue.radius;
+  const right = state.table.width - state.table.rail - cue.radius;
+  const top = state.table.rail + cue.radius;
+  const bottom = state.table.height - state.table.rail - cue.radius;
+  const clampedX = Math.max(left, Math.min(right, x));
+  const clampedY = Math.max(top, Math.min(bottom, y));
+
+  return state.balls.every((b) => {
+    if (b.kind === "cue" || b.pocketed) return true;
+    const minDist = cue.radius + b.radius + 0.5;
+    return Math.hypot(b.pos.x - clampedX, b.pos.y - clampedY) >= minDist;
+  });
+}
+
 export class MatchRoom {
   readonly id: string;
   readonly socketsByUser = new Map<string, string>();
   private rematchVotes = new Set<string>();
   private disconnectTimers = new Map<string, NodeJS.Timeout>();
   private shotUnlockTimer: NodeJS.Timeout | null = null;
+  private shotClockTicker: NodeJS.Timeout | null = null;
+  private readonly shotClockMs = 30000;
+  private lastCueBroadcastAt = 0;
+  private lastCueBroadcastPos: { x: number; y: number } | null = null;
   state: MatchState;
 
   constructor(
@@ -29,10 +51,24 @@ export class MatchRoom {
     players.forEach((p) => this.socketsByUser.set(p.userId, p.socketId));
 
     const statePlayers: [PlayerState, PlayerState] = [
-      { userId: players[0].userId, username: players[0].username, group: null, wins: 0 },
-      { userId: players[1].userId, username: players[1].username, group: null, wins: 0 }
+      {
+        userId: players[0].userId,
+        username: players[0].username,
+        group: null,
+        wins: 0,
+        profile: { wins: 0, losses: 0, matchesPlayed: 0, level: 1, region: "Global" }
+      },
+      {
+        userId: players[1].userId,
+        username: players[1].username,
+        group: null,
+        wins: 0,
+        profile: { wins: 0, losses: 0, matchesPlayed: 0, level: 1, region: "Global" }
+      }
     ];
     this.state = createMatchState(this.id, statePlayers);
+    this.state.turnDeadlineMs = Date.now() + this.shotClockMs;
+    this.shotClockTicker = setInterval(() => this.checkTurnTimeout(), 250);
   }
 
   attachSockets(): void {
@@ -47,6 +83,7 @@ export class MatchRoom {
       this.io.sockets.sockets.get(p.socketId)?.join(this.id);
     });
     this.broadcastState();
+    void this.hydratePlayerProfiles().catch(() => undefined);
   }
 
   handleReconnect(userId: string, socketId: string): boolean {
@@ -77,10 +114,25 @@ export class MatchRoom {
 
     cue.pocketed = false;
     cue.vel = { x: 0, y: 0 };
-    cue.pos = {
+    const nextPos = {
       x: Math.max(this.state.table.rail + cue.radius, Math.min(this.state.table.width - this.state.table.rail - cue.radius, x)),
       y: Math.max(this.state.table.rail + cue.radius, Math.min(this.state.table.height - this.state.table.rail - cue.radius, y))
     };
+    if (!canPlaceCueAt(this.state, nextPos.x, nextPos.y)) return;
+    if (Math.hypot(cue.pos.x - nextPos.x, cue.pos.y - nextPos.y) < 0.2) return;
+    cue.pos = nextPos;
+
+    const now = Date.now();
+    const sinceLast = now - this.lastCueBroadcastAt;
+    const distFromLast =
+      this.lastCueBroadcastPos === null
+        ? Number.POSITIVE_INFINITY
+        : Math.hypot(nextPos.x - this.lastCueBroadcastPos.x, nextPos.y - this.lastCueBroadcastPos.y);
+    if (sinceLast < 28 && distFromLast < 2.8) return;
+    this.lastCueBroadcastAt = now;
+    this.lastCueBroadcastPos = { ...nextPos };
+    this.state.ballInHand = false;
+    this.resetTurnDeadline();
     this.broadcastState();
   }
 
@@ -93,6 +145,10 @@ export class MatchRoom {
 
     const playerIndex = this.state.players.findIndex((p) => p.userId === userId);
     if (playerIndex !== this.state.currentTurn) return;
+    if (this.state.ballInHand) {
+      this.io.to(this.socketsByUser.get(userId) ?? "").emit("match:shot-rejected", { reason: "Place cue ball first" });
+      return;
+    }
 
     if (!Number.isFinite(shot.angle) || !Number.isFinite(shot.power) || shot.power < 0.05 || shot.power > 1) {
       this.io.to(this.socketsByUser.get(userId) ?? "").emit("match:shot-rejected", { reason: "Invalid shot" });
@@ -100,6 +156,7 @@ export class MatchRoom {
     }
 
     this.state.shotInProgress = true;
+    this.state.turnDeadlineMs = null;
     this.broadcastState();
 
     // Authoritative flow: validate -> simulate -> adjudicate rules -> broadcast one true state.
@@ -127,7 +184,12 @@ export class MatchRoom {
     });
     applyOutcomeToTurn(this.state, outcome);
 
-    this.io.to(this.id).emit("match:replay", { frames: replayFrames, fps: replayFps, durationMs: replayDurationMs });
+    this.io.to(this.id).emit("match:replay", {
+      frames: replayFrames,
+      fps: replayFps,
+      durationMs: replayDurationMs,
+      shotCount: this.state.shotCount
+    });
     this.broadcastState();
     this.scheduleShotUnlock(replayDurationMs);
 
@@ -140,11 +202,16 @@ export class MatchRoom {
     if (this.shotUnlockTimer) clearTimeout(this.shotUnlockTimer);
     this.shotUnlockTimer = setTimeout(() => {
       this.state.shotInProgress = false;
+      this.resetTurnDeadline();
       this.broadcastState();
     }, delayMs);
   }
 
   private async finish(winnerUserId: string | null, reason: string) {
+    if (this.shotClockTicker) {
+      clearInterval(this.shotClockTicker);
+      this.shotClockTicker = null;
+    }
     if (this.shotUnlockTimer) {
       clearTimeout(this.shotUnlockTimer);
       this.shotUnlockTimer = null;
@@ -220,9 +287,76 @@ export class MatchRoom {
         { ...this.state.players[1], group: null }
       ];
       this.state = createMatchState(this.id, players);
+      this.state.timeoutStrikes = [0, 0];
+      this.resetTurnDeadline();
       this.rematchVotes.clear();
       this.broadcastState();
     }
+  }
+
+  private resetTurnDeadline(): void {
+    this.state.turnDeadlineMs = Date.now() + this.shotClockMs;
+  }
+
+  private checkTurnTimeout(): void {
+    if (this.state.phase === "round_end") return;
+    if (this.state.shotInProgress) return;
+    const deadline = this.state.turnDeadlineMs;
+    if (!deadline) return;
+    if (Date.now() < deadline) return;
+
+    const offender = this.state.currentTurn;
+    const strikes = [...this.state.timeoutStrikes] as [number, number];
+    strikes[offender] += 1;
+    this.state.timeoutStrikes = strikes;
+
+    if (strikes[offender] >= 3) {
+      const winner = this.state.players[1 - offender]?.userId ?? null;
+      void this.finish(winner, "shot_clock_forfeit");
+      return;
+    }
+
+    this.state.lastOutcome = {
+      foul: true,
+      scratched: false,
+      pocketed: [],
+      firstContact: null,
+      turnContinues: false,
+      winnerUserId: null,
+      legalEight: false,
+      reason: "Shot clock violation"
+    };
+    this.state.ballInHand = true;
+    this.state.currentTurn = 1 - offender;
+    this.state.breakDone = true;
+    if (this.state.phase === "breaking") this.state.phase = "playing";
+    this.resetTurnDeadline();
+    this.broadcastState();
+  }
+
+  private async hydratePlayerProfiles(): Promise<void> {
+    const users = await prisma.user.findMany({
+      where: { chatUserId: { in: this.players.map((p) => p.userId) } },
+      include: { playerStats: true }
+    });
+    if (users.length === 0) return;
+
+    const byChatId = new Map(users.map((u) => [u.chatUserId, u]));
+    this.state.players = this.state.players.map((p) => {
+      const user = byChatId.get(p.userId);
+      return {
+        ...p,
+        profile: {
+          wins: user?.playerStats?.wins ?? 0,
+          losses: user?.playerStats?.losses ?? 0,
+          matchesPlayed: user?.playerStats?.matchesPlayed ?? 0,
+          level: user?.playerStats?.level ?? 1,
+          region: "Global"
+        }
+      };
+    }) as [PlayerState, PlayerState];
+
+    this.broadcastState();
   }
 
   private broadcastState() {

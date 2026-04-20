@@ -10,11 +10,13 @@ export const TABLE: TableConfig = {
 
 export const PHYSICS = {
   stepHz: 120,
-  frictionPerSecond: 0.61,
-  minVelocity: 6.1,
-  restitutionBall: 0.91,
-  restitutionCushion: 0.74,
-  railFrictionOnImpact: 0.96,
+  frictionPerSecond: 0.54,
+  minVelocity: 7.2,
+  restitutionBall: 0.84,
+  restitutionCushion: 0.62,
+  railFrictionOnImpact: 0.92,
+  collisionTangentialFriction: 0.08,
+  collisionEnergyRetain: 0.985,
   pocketCaptureScale: 0.82,
   pocketMouthScale: 1.08,
   pocketPullStrength: 14,

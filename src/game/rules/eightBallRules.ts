@@ -36,6 +36,54 @@ function assignGroups(state: MatchState, pocketed: number[]) {
   }
 }
 
+function placeCueAtBreakSpot(state: MatchState): void {
+  const cue = state.balls.find((b) => b.kind === "cue");
+  if (!cue) return;
+
+  const left = state.table.rail + cue.radius;
+  const right = state.table.width - state.table.rail - cue.radius;
+  const top = state.table.rail + cue.radius;
+  const bottom = state.table.height - state.table.rail - cue.radius;
+  const base = { x: state.table.width * 0.25, y: state.table.height * 0.5 };
+
+  const clamp = (x: number, y: number) => ({
+    x: Math.max(left, Math.min(right, x)),
+    y: Math.max(top, Math.min(bottom, y))
+  });
+
+  const canPlace = (x: number, y: number) =>
+    state.balls.every((b) => {
+      if (b.kind === "cue" || b.pocketed) return true;
+      return Math.hypot(b.pos.x - x, b.pos.y - y) >= cue.radius + b.radius + 0.5;
+    });
+
+  const preferred = clamp(base.x, base.y);
+  if (canPlace(preferred.x, preferred.y)) {
+    cue.pos = preferred;
+  } else {
+    const step = cue.radius * 1.8;
+    let found = false;
+    for (let i = 1; i <= 24; i += 1) {
+      const up = clamp(base.x, base.y - i * step);
+      if (canPlace(up.x, up.y)) {
+        cue.pos = up;
+        found = true;
+        break;
+      }
+      const down = clamp(base.x, base.y + i * step);
+      if (canPlace(down.x, down.y)) {
+        cue.pos = down;
+        found = true;
+        break;
+      }
+    }
+    if (!found) cue.pos = preferred;
+  }
+
+  cue.pocketed = false;
+  cue.vel = { x: 0, y: 0 };
+}
+
 export function adjudicateShot(state: MatchState, input: OutcomeInput): ShotOutcome {
   const turnPlayer = state.players[state.currentTurn];
   const opponent = state.players[1 - state.currentTurn];
@@ -116,6 +164,7 @@ export function applyOutcomeToTurn(state: MatchState, outcome: ShotOutcome): voi
   if (outcome.foul) {
     state.ballInHand = true;
     state.currentTurn = 1 - state.currentTurn;
+    placeCueAtBreakSpot(state);
     if (!state.breakDone) state.phase = "playing";
     state.breakDone = true;
     return;

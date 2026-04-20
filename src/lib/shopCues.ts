@@ -159,25 +159,18 @@ function hue(seed: number, offset: number) {
 }
 
 const rawCatalog = [...STANDARD, ...PREMIUM, ...COUNTRY];
-
-export const CUE_CATALOG: CueCatalogEntry[] = rawCatalog.map((cue, i) => {
+const mappedCatalog: CueCatalogEntry[] = rawCatalog.map((cue, i) => {
   const flag = FLAG_THEMES[i % FLAG_THEMES.length];
   const woodHue = hue(i + 11, 22);
   const woodDark = `hsl(${woodHue} 44% 30%)`;
   const woodMid = `hsl(${woodHue} 38% 42%)`;
   const mapleShaft = `hsl(${34 + ((i * 2) % 12)} 48% 70%)`;
-  const normalizedName =
-    cue.group === "country"
-      ? `${flag.country} National Cue`
-      : cue.group === "premium"
-        ? `${flag.country} Pro Cue`
-        : `${flag.country} Classic Cue`;
 
   return {
     ...cue,
-    name: normalizedName,
+    name: cue.name,
     id: cue.name === "Beginner Cue" ? "cue_beginner" : cueId(cue.name),
-    countryTheme: flag.country,
+    countryTheme: cue.group === "country" ? cue.name.replace(/ Cue$/, "") : flag.country,
     flagColors: flag.colors,
     butt: woodDark,
     shaft: mapleShaft,
@@ -185,6 +178,10 @@ export const CUE_CATALOG: CueCatalogEntry[] = rawCatalog.map((cue, i) => {
     accent: woodMid
   };
 });
+
+export const CUE_CATALOG: CueCatalogEntry[] = Array.from(
+  new Map<string, CueCatalogEntry>(mappedCatalog.map((cue) => [cue.id, cue])).values()
+);
 
 export function cueById(id: string): CueCatalogEntry | null {
   return CUE_CATALOG.find((c) => c.id === id) ?? null;
