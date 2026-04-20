@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AuthPanel } from "@/components/AuthPanel";
 import { GameCanvas } from "@/components/GameCanvas";
+import { CustomizationMenu } from "@/components/CustomizationMenu";
 import { useArenaSocket } from "@/hooks/useArenaSocket";
 import { api } from "@/lib/api";
 import { arenaAudio } from "@/game/audio/audio";
@@ -32,6 +33,7 @@ export default function HomePage() {
   const [shotPower, setShotPower] = useState(0.42);
   const [cueIndex, setCueIndex] = useState(0);
   const [tableIndex, setTableIndex] = useState(0);
+  const [lockerOpen, setLockerOpen] = useState(false);
   const [mode, setMode] = useState<"online" | "sandbox">("online");
   const [localState, setLocalState] = useState<MatchState | null>(null);
   const [localReplay, setLocalReplay] = useState<{ id: string; frames: MatchState["balls"][]; fps: number } | null>(null);
@@ -178,30 +180,12 @@ export default function HomePage() {
               value={assistStrength}
               onChange={(e) => setAssistStrength(Number(e.target.value))}
             />
-            <label className="ml-2 text-xs uppercase tracking-wide text-white/60">Cue</label>
-            <select
-              value={cueIndex}
-              onChange={(e) => setCueIndex(Number(e.target.value))}
-              className="rounded bg-white/10 px-2 py-1 text-xs text-white"
-            >
-              {CUE_STYLES.map((cue, idx) => (
-                <option key={cue.id} value={idx} className="bg-slate-900 text-white">
-                  {cue.name}
-                </option>
-              ))}
-            </select>
-            <label className="ml-2 text-xs uppercase tracking-wide text-white/60">Table</label>
-            <select
-              value={tableIndex}
-              onChange={(e) => setTableIndex(Number(e.target.value))}
-              className="rounded bg-white/10 px-2 py-1 text-xs text-white"
-            >
-              {TABLE_SKINS.map((skin, idx) => (
-                <option key={skin.id} value={idx} className="bg-slate-900 text-white">
-                  {skin.name}
-                </option>
-              ))}
-            </select>
+            <button onClick={() => setLockerOpen(true)} className="ml-2 rounded-lg bg-white/10 px-3 py-1.5 text-xs text-white">
+              Locker
+            </button>
+            <span className="text-xs text-white/60">
+              {CUE_STYLES[cueIndex]?.name} | {TABLE_SKINS[tableIndex]?.name}
+            </span>
           </div>
         </div>
 
@@ -275,6 +259,17 @@ export default function HomePage() {
           </div>
         )}
       </section>
+
+      <CustomizationMenu
+        open={lockerOpen}
+        selectedCueIndex={cueIndex}
+        selectedTableIndex={tableIndex}
+        cues={CUE_STYLES}
+        tables={TABLE_SKINS}
+        onSelectCue={setCueIndex}
+        onSelectTable={setTableIndex}
+        onClose={() => setLockerOpen(false)}
+      />
     </main>
   );
 }
