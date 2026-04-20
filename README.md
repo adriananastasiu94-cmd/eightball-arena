@@ -73,6 +73,19 @@ Original browser-based 8-ball game with server-authoritative multiplayer, premiu
 - `npm run build`
 - `npm run start`
 
+## Render auto-deploy hardening
+
+This repo includes GitHub Actions workflow `.github/workflows/render-autodeploy.yml`.
+It triggers your Render service deploy hook on every push to `main`.
+
+One-time setup:
+
+1. In Render (`eightball-arena-web`) copy the **Deploy Hook URL**.
+2. In GitHub repo settings, add secret:
+   - Name: `RENDER_DEPLOY_HOOK_URL`
+   - Value: your Render deploy hook URL
+3. Push to `main` (or run the workflow manually from Actions tab).
+
 ## Physics loop details
 
 `src/game/physics/engine.ts` uses a deterministic fixed-step loop at `PHYSICS.stepHz`.
