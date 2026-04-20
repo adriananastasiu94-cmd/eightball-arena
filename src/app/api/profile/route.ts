@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { chatMe } from "@/lib/chatAuth";
 import { prisma } from "@/lib/prisma";
 
+function parseOwnedCueIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return ["cue_beginner"];
+  const ids = value.filter((v): v is string => typeof v === "string" && v.length > 0);
+  if (!ids.includes("cue_beginner")) ids.unshift("cue_beginner");
+  return Array.from(new Set(ids));
+}
+
 export async function GET(request: NextRequest) {
   const token = request.cookies.get("arena_chat_token")?.value;
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -43,7 +50,16 @@ export async function GET(request: NextRequest) {
       username: user.username,
       email: user.email,
       avatarUrl: user.avatarUrl,
-      stats: user.playerStats,
+      stats: user.playerStats
+        ? {
+            ...user.playerStats,
+            xp: user.playerStats.xp ?? 0,
+            coins: user.playerStats.coins ?? 10000,
+            cash: user.playerStats.cash ?? 200,
+            ownedCueIds: parseOwnedCueIds(user.playerStats.ownedCueIds),
+            equippedCueId: user.playerStats.equippedCueId || "cue_beginner"
+          }
+        : null,
       recentMatches: user.history.map((h: { matchId: string; summary: string; createdAt: Date }) => ({ id: h.matchId, summary: h.summary, at: h.createdAt }))
     }
   });

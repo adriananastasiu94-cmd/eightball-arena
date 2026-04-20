@@ -9,7 +9,12 @@ type Props = {
   selectedTableIndex: number;
   cues: CueStyle[];
   tables: TableSkin[];
+  ownedCueIds: string[];
+  coins: number;
+  cash: number;
+  busyCueId: string | null;
   onSelectCue: (index: number) => void;
+  onBuyCue: (index: number) => void;
   onSelectTable: (index: number) => void;
   onClose: () => void;
 };
@@ -38,7 +43,12 @@ export function CustomizationMenu({
   selectedTableIndex,
   cues,
   tables,
+  ownedCueIds,
+  coins,
+  cash,
+  busyCueId,
   onSelectCue,
+  onBuyCue,
   onSelectTable,
   onClose
 }: Props) {
@@ -53,7 +63,14 @@ export function CustomizationMenu({
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <div>
             <div className="text-lg font-semibold text-white">Arena Locker</div>
-            <div className="text-xs text-white/60">Owned: {cueCount} cues | {tableCount} table skins</div>
+            <div className="text-xs text-white/60">
+              Owned: {ownedCueIds.length} / {cueCount} cues | {tableCount} table skins
+            </div>
+          </div>
+          <div className="mr-3 flex items-center gap-2 rounded-lg border border-white/15 bg-black/25 px-3 py-1 text-xs text-white/90">
+            <span>Coins: {coins.toLocaleString()}</span>
+            <span className="text-white/40">|</span>
+            <span>Cash: {cash.toLocaleString()}</span>
           </div>
           <button onClick={onClose} className="rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white">
             Close
@@ -81,6 +98,9 @@ export function CustomizationMenu({
               {cues.map((cue, idx) => {
                 const rarity = rarityForIndex(idx + 1);
                 const equipped = idx === selectedCueIndex;
+                const owned = ownedCueIds.includes(cue.id);
+                const canAfford = cue.currency === "coins" ? coins >= cue.price : cash >= cue.price;
+                const buying = busyCueId === cue.id;
                 return (
                   <div key={cue.id} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-2">
                     <div className="flex min-w-0 items-center gap-3">
@@ -98,13 +118,27 @@ export function CustomizationMenu({
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <span className="rounded-md border border-white/20 bg-white/10 px-2 py-0.5 text-[11px] text-white/85">
+                        {cue.price.toLocaleString()} {cue.currency === "coins" ? "coins" : "cash"}
+                      </span>
                       <span className={`rounded-md border px-2 py-0.5 text-[11px] ${rarityClass(rarity)}`}>{rarity}</span>
-                      <button
-                        onClick={() => onSelectCue(idx)}
-                        className={`rounded-md px-2.5 py-1 text-xs font-medium ${equipped ? "bg-emerald-500/80 text-white" : "bg-white/10 text-white"}`}
-                      >
-                        {equipped ? "Equipped" : "Equip"}
-                      </button>
+                      {owned ? (
+                        <button
+                          onClick={() => onSelectCue(idx)}
+                          disabled={buying}
+                          className={`rounded-md px-2.5 py-1 text-xs font-medium ${equipped ? "bg-emerald-500/80 text-white" : "bg-white/10 text-white"}`}
+                        >
+                          {equipped ? "Equipped" : "Equip"}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => onBuyCue(idx)}
+                          disabled={!canAfford || buying}
+                          className={`rounded-md px-2.5 py-1 text-xs font-medium ${canAfford ? "bg-brass text-slate" : "bg-white/10 text-white/45"}`}
+                        >
+                          {buying ? "Buying..." : "Buy"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 );

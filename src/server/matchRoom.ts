@@ -184,13 +184,19 @@ export class MatchRoom {
           wins: p.userId === winnerUserId ? 1 : 0,
           losses: p.userId !== winnerUserId ? 1 : 0,
           matchesPlayed: 1,
-          rating: 1000 + (p.userId === winnerUserId ? 10 : -10)
+          rating: 1000 + (p.userId === winnerUserId ? 10 : -10),
+          xp: p.userId === winnerUserId ? 280 : 140,
+          coins: 10000 + (p.userId === winnerUserId ? 650 : 280),
+          cash: 200 + (p.userId === winnerUserId ? 2 : 1)
         },
         update: {
           wins: { increment: p.userId === winnerUserId ? 1 : 0 },
           losses: { increment: p.userId !== winnerUserId ? 1 : 0 },
           matchesPlayed: { increment: 1 },
-          rating: { increment: p.userId === winnerUserId ? 10 : -10 }
+          rating: { increment: p.userId === winnerUserId ? 10 : -10 },
+          xp: { increment: p.userId === winnerUserId ? 280 : 140 },
+          coins: { increment: p.userId === winnerUserId ? 650 : 280 },
+          cash: { increment: p.userId === winnerUserId ? 2 : 1 }
         }
       });
 

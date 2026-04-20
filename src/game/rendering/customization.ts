@@ -1,6 +1,12 @@
+import { CUE_CATALOG, CueCatalogEntry } from "@/lib/shopCues";
+
 export type CueStyle = {
   id: string;
   name: string;
+  level: number;
+  price: number;
+  currency: "coins" | "cash";
+  group: "standard" | "premium" | "country";
   butt: string;
   shaft: string;
   tip: string;
@@ -17,20 +23,9 @@ export type TableSkin = {
   bgBottom: string;
 };
 
-const hue = (seed: number, offset: number) => (seed * 41 + offset) % 360;
+export const CUE_STYLES: CueStyle[] = CUE_CATALOG.map((cue: CueCatalogEntry) => ({ ...cue }));
 
-export const CUE_STYLES: CueStyle[] = Array.from({ length: 50 }, (_, i) => {
-  const h1 = hue(i + 3, 14);
-  const h2 = hue(i + 11, 210);
-  return {
-    id: `cue_${i + 1}`,
-    name: `Arena Cue ${i + 1}`,
-    butt: `hsl(${h1} 70% 42%)`,
-    shaft: `hsl(${35 + ((i * 5) % 20)} 55% ${64 + (i % 8)}%)`,
-    tip: `hsl(${h2} 55% 58%)`,
-    accent: `hsl(${(h1 + h2) % 360} 74% 62%)`
-  };
-});
+const hue = (seed: number, offset: number) => (seed * 41 + offset) % 360;
 
 export const TABLE_SKINS: TableSkin[] = Array.from({ length: 50 }, (_, i) => {
   const feltHue = hue(i + 5, 120);

@@ -24,6 +24,11 @@ type Me = {
     matchesPlayed: number;
     rating: number;
     level: number;
+    xp: number;
+    coins: number;
+    cash: number;
+    ownedCueIds: string[];
+    equippedCueId: string;
   } | null;
 };
 
@@ -34,6 +39,7 @@ export default function HomePage() {
   const [cueIndex, setCueIndex] = useState(0);
   const [tableIndex, setTableIndex] = useState(0);
   const [lockerOpen, setLockerOpen] = useState(false);
+  const [busyCueId, setBusyCueId] = useState<string | null>(null);
   const [mode, setMode] = useState<"online" | "sandbox">("online");
   const [localState, setLocalState] = useState<MatchState | null>(null);
   const [localReplay, setLocalReplay] = useState<{ id: string; frames: MatchState["balls"][]; fps: number } | null>(null);
@@ -41,7 +47,13 @@ export default function HomePage() {
 
   useEffect(() => {
     api<{ user: Me }>("/api/profile")
-      .then((res) => setMe(res.user))
+      .then((res) => {
+        const incoming = res.user;
+        const equippedId = incoming.stats?.equippedCueId ?? "cue_beginner";
+        const idx = CUE_STYLES.findIndex((c) => c.id === equippedId);
+        if (idx >= 0) setCueIndex(idx);
+        setMe(incoming);
+      })
       .catch(() => undefined);
   }, []);
 
@@ -114,6 +126,82 @@ export default function HomePage() {
 
   const solidsRemaining = useMemo(() => currentState?.balls.filter((b) => !b.pocketed && b.number >= 1 && b.number <= 7).length ?? 7, [currentState]);
   const stripesRemaining = useMemo(() => currentState?.balls.filter((b) => !b.pocketed && b.number >= 9 && b.number <= 15).length ?? 7, [currentState]);
+  const xp = me?.stats?.xp ?? 0;
+  const level = Math.max(1, me?.stats?.level ?? Math.floor(xp / 1000) + 1);
+  const currentLevelStart = (level - 1) * 1000;
+  const currentLevelEnd = level * 1000;
+  const xpProgress = Math.max(0, Math.min(1, (xp - currentLevelStart) / Math.max(1, currentLevelEnd - currentLevelStart)));
+
+  const onEquipCue = async (index: number) => {
+    if (!me?.stats) return;
+    const cue = CUE_STYLES[index];
+    if (!cue) return;
+    if (!me.stats.ownedCueIds.includes(cue.id)) return;
+    setBusyCueId(cue.id);
+    try {
+      await api("/api/shop/cues", {
+        method: "POST",
+        body: JSON.stringify({ action: "equip", cueId: cue.id })
+      });
+      setCueIndex(index);
+      setMe((prev) =>
+        prev
+          ? {
+              ...prev,
+              stats: prev.stats
+                ? {
+                    ...prev.stats,
+                    equippedCueId: cue.id
+                  }
+                : prev.stats
+            }
+          : prev
+      );
+    } finally {
+      setBusyCueId(null);
+    }
+  };
+
+  const onBuyCue = async (index: number) => {
+    if (!me?.stats) return;
+    const cue = CUE_STYLES[index];
+    if (!cue) return;
+    setBusyCueId(cue.id);
+    try {
+      const res = await api<{
+        wallet: { coins: number; cash: number; xp: number; level: number };
+        inventory: { ownedCueIds: string[]; equippedCueId: string };
+      }>("/api/shop/cues", {
+        method: "POST",
+        body: JSON.stringify({ action: "buy", cueId: cue.id })
+      });
+
+      setMe((prev) =>
+        prev
+          ? {
+              ...prev,
+              stats: prev.stats
+                ? {
+                    ...prev.stats,
+                    coins: res.wallet.coins,
+                    cash: res.wallet.cash,
+                    xp: res.wallet.xp,
+                    level: res.wallet.level,
+                    ownedCueIds: res.inventory.ownedCueIds,
+                    equippedCueId: res.inventory.equippedCueId
+                  }
+                : prev.stats
+            }
+          : prev
+      );
+      const equippedIdx = CUE_STYLES.findIndex((c) => c.id === res.inventory.equippedCueId);
+      if (equippedIdx >= 0) setCueIndex(equippedIdx);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setBusyCueId(null);
+    }
+  };
 
   if (!me) {
     return (
@@ -125,6 +213,21 @@ export default function HomePage() {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-4 p-3 md:p-6">
+      <div className="rounded-2xl border border-white/10 bg-black/30 p-3 shadow-glow">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-white">Freemium Progress</div>
+          <div className="flex items-center gap-3 text-xs text-white/85">
+            <span className="rounded bg-amber-400/20 px-2 py-1 text-amber-200">Coins: {(me.stats?.coins ?? 0).toLocaleString()}</span>
+            <span className="rounded bg-emerald-400/20 px-2 py-1 text-emerald-200">Cash: {(me.stats?.cash ?? 0).toLocaleString()}</span>
+            <span className="rounded bg-cyan-400/20 px-2 py-1 text-cyan-200">XP: {xp.toLocaleString()}</span>
+            <span className="rounded bg-indigo-400/20 px-2 py-1 text-indigo-200">Level {level}</span>
+          </div>
+        </div>
+        <div className="h-3 overflow-hidden rounded-full bg-white/10">
+          <div className="h-full bg-gradient-to-r from-cyan-400 to-indigo-500" style={{ width: `${Math.round(xpProgress * 100)}%` }} />
+        </div>
+      </div>
+
       <header className="rounded-2xl border border-white/10 bg-black/25 p-4 shadow-glow">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -266,7 +369,12 @@ export default function HomePage() {
         selectedTableIndex={tableIndex}
         cues={CUE_STYLES}
         tables={TABLE_SKINS}
-        onSelectCue={setCueIndex}
+        ownedCueIds={me.stats?.ownedCueIds ?? ["cue_beginner"]}
+        coins={me.stats?.coins ?? 0}
+        cash={me.stats?.cash ?? 0}
+        busyCueId={busyCueId}
+        onSelectCue={onEquipCue}
+        onBuyCue={onBuyCue}
         onSelectTable={setTableIndex}
         onClose={() => setLockerOpen(false)}
       />
