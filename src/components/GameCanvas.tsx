@@ -1,7 +1,7 @@
 "use client";
 
 import { PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { MatchState, ShotInput } from "@/game/types";
+import { BallState, MatchState, ShotInput } from "@/game/types";
 import { ARENA_THEME } from "@/game/rendering/theme";
 
 type Props = {
@@ -10,6 +10,8 @@ type Props = {
   onShoot: (shot: ShotInput) => void;
   onPlaceCue: (x: number, y: number) => void;
   assistStrength: number;
+  replay: { id: string; frames: BallState[][]; fps: number } | null;
+  onReplayDone?: () => void;
 };
 
 type AimState = {
@@ -20,15 +22,43 @@ type AimState = {
 
 const BG_GRAD = ["#081318", "#0d1b2a"];
 
-export function GameCanvas({ state, myUserId, onShoot, onPlaceCue, assistStrength }: Props) {
+export function GameCanvas({ state, myUserId, onShoot, onPlaceCue, assistStrength, replay, onReplayDone }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [aim, setAim] = useState<AimState>({ active: false, angle: 0, power: 0.35 });
+  const [replayFrameIndex, setReplayFrameIndex] = useState(0);
 
   const isMyTurn = useMemo(() => {
     if (!state || !myUserId) return false;
     return state.players[state.currentTurn]?.userId === myUserId;
   }, [state, myUserId]);
+
+  useEffect(() => {
+    if (!replay || replay.frames.length === 0) {
+      setReplayFrameIndex(0);
+      return;
+    }
+
+    let raf = 0;
+    let finished = false;
+    const frameDurationMs = 1000 / Math.max(1, replay.fps);
+    const startedAt = performance.now();
+
+    const tick = (now: number) => {
+      const elapsed = now - startedAt;
+      const idx = Math.min(replay.frames.length - 1, Math.floor(elapsed / frameDurationMs));
+      setReplayFrameIndex(idx);
+      if (idx < replay.frames.length - 1) {
+        raf = window.requestAnimationFrame(tick);
+      } else if (!finished) {
+        finished = true;
+        window.setTimeout(() => onReplayDone?.(), frameDurationMs);
+      }
+    };
+
+    raf = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(raf);
+  }, [replay, onReplayDone]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -115,7 +145,8 @@ export function GameCanvas({ state, myUserId, onShoot, onPlaceCue, assistStrengt
         ctx.stroke();
       }
 
-      for (const ball of state.balls) {
+      const renderBalls = replay && replay.frames[replayFrameIndex] ? replay.frames[replayFrameIndex] : state.balls;
+      for (const ball of renderBalls) {
         if (ball.pocketed) continue;
         ctx.beginPath();
         if (ball.kind === "cue") ctx.fillStyle = ARENA_THEME.cue;
@@ -141,7 +172,7 @@ export function GameCanvas({ state, myUserId, onShoot, onPlaceCue, assistStrengt
     draw();
     window.addEventListener("resize", draw);
     return () => window.removeEventListener("resize", draw);
-  }, [state, aim, isMyTurn, assistStrength]);
+  }, [state, aim, isMyTurn, assistStrength, replay, replayFrameIndex]);
 
   const pointerToTable = (e: PointerEvent): { x: number; y: number } | null => {
     if (!state) return null;

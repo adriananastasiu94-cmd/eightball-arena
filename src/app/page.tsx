@@ -30,6 +30,7 @@ export default function HomePage() {
   const [assistStrength, setAssistStrength] = useState(0.65);
   const [mode, setMode] = useState<"online" | "sandbox">("online");
   const [localState, setLocalState] = useState<MatchState | null>(null);
+  const [localReplay, setLocalReplay] = useState<{ id: string; frames: MatchState["balls"][]; fps: number } | null>(null);
   const socket = useArenaSocket(Boolean(me) && mode === "online");
 
   useEffect(() => {
@@ -75,7 +76,13 @@ export default function HomePage() {
       scratched
     });
     applyOutcomeToTurn(next, outcome);
-    setLocalState(next);
+    const fps = 30;
+    const sampleStep = 4;
+    const frames = sim.frames
+      .filter((_, idx) => idx % sampleStep === 0 || idx === sim.frames.length - 1)
+      .map((frame) => frame.map((b) => ({ ...b, pos: { ...b.pos }, vel: { ...b.vel } })));
+    setLocalReplay({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, frames, fps });
+    window.setTimeout(() => setLocalState(next), Math.max(120, Math.round((frames.length / fps) * 1000)));
 
     if (pocketed.length) arenaAudio.pocket();
   };
@@ -169,6 +176,11 @@ export default function HomePage() {
           onShoot={onShoot}
           onPlaceCue={onPlaceCue}
           assistStrength={assistStrength}
+          replay={mode === "online" ? socket.replay : localReplay}
+          onReplayDone={() => {
+            if (mode === "online") socket.clearReplay();
+            else setLocalReplay(null);
+          }}
         />
 
         {mode === "online" && (

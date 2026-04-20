@@ -96,6 +96,11 @@ export class MatchRoom {
     // Authoritative flow: validate -> simulate -> adjudicate rules -> broadcast one true state.
     const ballsAfterImpulse = applyCueImpulse(this.state.balls, shot.angle, shot.power, shot.spin);
     const sim = simulateShot(this.state.table, ballsAfterImpulse);
+    const replayFps = 30;
+    const sampleStep = 4; // 120 Hz sim -> 30 FPS replay stream
+    const replayFrames = sim.frames
+      .filter((_, idx) => idx % sampleStep === 0 || idx === sim.frames.length - 1)
+      .map((frame) => frame.map((b) => ({ ...b, pos: { ...b.pos }, vel: { ...b.vel } })));
 
     const pocketed = sim.events.filter((e) => e.type === "pocket").map((e) => e.ballId);
     const firstContactEvent = sim.events.find((e) => e.type === "first_contact") as { targetBallId: number } | undefined;
@@ -109,6 +114,7 @@ export class MatchRoom {
     });
     applyOutcomeToTurn(this.state, outcome);
 
+    this.io.to(this.id).emit("match:replay", { frames: replayFrames, fps: replayFps });
     this.broadcastState();
 
     if (outcome.winnerUserId) {
