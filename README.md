@@ -25,6 +25,7 @@ Original browser-based 8-ball game with server-authoritative multiplayer, premiu
 - Sandbox mode for local physics/rules tuning without matchmaking
 - Mobile-friendly controls with drag aiming, cue preview line, and power scaling
 - Lightweight procedural audio feedback
+- Shared account login with the chat app (`/auth/login` + `/auth/me`)
 
 ## Project structure
 
@@ -54,7 +55,7 @@ Original browser-based 8-ball game with server-authoritative multiplayer, premiu
 
 1. Copy env template:
    - `cp .env.example .env` (Windows PowerShell: `Copy-Item .env.example .env`)
-2. Set `DATABASE_URL` and `JWT_SECRET`.
+2. Set `DATABASE_URL`, `JWT_SECRET`, and `CHAT_API_URL` (your chat API base URL, e.g. `https://chordchat-api.onrender.com`).
 3. Install dependencies:
    - `npm install`
 4. Generate Prisma client:

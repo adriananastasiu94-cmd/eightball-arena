@@ -1,10 +1,9 @@
 import { Server as HttpServer } from "http";
 import { Server } from "socket.io";
-import { verifyToken } from "@/lib/jwt";
+import { chatMe } from "@/lib/chatAuth";
 import { shotSchema } from "@/lib/validators";
 import { Matchmaker } from "./matchmaking";
 import { MemoryRateLimiter } from "./rateLimit";
-import { prisma } from "@/lib/prisma";
 
 export function createSocketServer(httpServer: HttpServer) {
   const io = new Server(httpServer, {
@@ -19,25 +18,27 @@ export function createSocketServer(httpServer: HttpServer) {
   const shotLimiter = new MemoryRateLimiter(12, 3000);
 
   io.use(async (socket, next) => {
-    const token =
+    const token = 
+      socket.handshake.auth?.chatToken ||
       socket.handshake.auth?.token ||
       socket.handshake.headers.cookie
         ?.split(";")
         .map((x: string) => x.trim())
-        .find((x: string) => x.startsWith("arena_token="))
+        .find((x: string) => x.startsWith("arena_chat_token="))
         ?.split("=")[1];
 
     if (!token) return next(new Error("UNAUTHORIZED"));
-    const auth = verifyToken(token);
-    if (!auth) return next(new Error("UNAUTHORIZED"));
-
-    const user = await prisma.user.findUnique({ where: { id: auth.userId } });
-    if (!user) return next(new Error("UNAUTHORIZED"));
+    let user;
+    try {
+      user = await chatMe(token);
+    } catch {
+      return next(new Error("UNAUTHORIZED"));
+    }
 
     socket.data.user = {
       userId: user.id,
       username: user.username,
-      avatarUrl: user.avatarUrl
+      avatarUrl: user.avatarUrl ?? null
     };
     next();
   });

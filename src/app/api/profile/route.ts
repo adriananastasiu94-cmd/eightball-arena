@@ -1,13 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/auth-server";
+import { chatMe } from "@/lib/chatAuth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
-  const auth = getAuthUser(request);
-  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const token = request.cookies.get("arena_chat_token")?.value;
+  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const user = await prisma.user.findUnique({
-    where: { id: auth.userId },
+  let chatUser;
+  try {
+    chatUser = await chatMe(token);
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const user = await prisma.user.upsert({
+    where: { chatUserId: chatUser.id },
+    update: {
+      email: chatUser.email,
+      username: chatUser.username,
+      avatarUrl: chatUser.avatarUrl ?? null
+    },
+    create: {
+      chatUserId: chatUser.id,
+      email: chatUser.email,
+      username: chatUser.username,
+      avatarUrl: chatUser.avatarUrl ?? null,
+      playerStats: { create: {} }
+    },
     include: {
       playerStats: true,
       history: {
@@ -18,11 +37,9 @@ export async function GET(request: NextRequest) {
     }
   });
 
-  if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
   return NextResponse.json({
     user: {
-      id: user.id,
+      id: user.chatUserId ?? user.id,
       username: user.username,
       email: user.email,
       avatarUrl: user.avatarUrl,
@@ -33,16 +50,30 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = getAuthUser(request);
-  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const token = request.cookies.get("arena_chat_token")?.value;
+  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  let chatUser;
+  try {
+    chatUser = await chatMe(token);
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const body = await request.json().catch(() => null);
   const avatarUrl = typeof body?.avatarUrl === "string" ? body.avatarUrl : null;
   if (!avatarUrl) return NextResponse.json({ error: "Invalid avatar url" }, { status: 400 });
 
-  const user = await prisma.user.update({
-    where: { id: auth.userId },
-    data: { avatarUrl }
+  const user = await prisma.user.upsert({
+    where: { chatUserId: chatUser.id },
+    update: { avatarUrl, email: chatUser.email, username: chatUser.username },
+    create: {
+      chatUserId: chatUser.id,
+      email: chatUser.email,
+      username: chatUser.username,
+      avatarUrl,
+      playerStats: { create: {} }
+    }
   });
 
   return NextResponse.json({ avatarUrl: user.avatarUrl });
