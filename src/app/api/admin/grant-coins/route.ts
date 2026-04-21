@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       return NextResponse.json(
-        { error: `Unable to grant coins right now (${error.code})` },
+        { error: "Unable to grant coins right now", code: error.code },
         { status: 500 }
       );
     }

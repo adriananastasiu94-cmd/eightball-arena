@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { chatMe } from "@/lib/chatAuth";
 import { prisma } from "@/lib/prisma";
 
@@ -152,7 +152,13 @@ export async function GET(request: NextRequest) {
         }))
       }
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return NextResponse.json(
+        { error: "Unable to load profile right now", code: error.code },
+        { status: 500 }
+      );
+    }
     return NextResponse.json({ error: "Unable to load profile right now" }, { status: 500 });
   }
 }
@@ -178,7 +184,13 @@ export async function POST(request: NextRequest) {
       avatarUrl
     });
     return NextResponse.json({ avatarUrl: user.avatarUrl });
-  } catch {
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return NextResponse.json(
+        { error: "Unable to update avatar right now", code: error.code },
+        { status: 500 }
+      );
+    }
     return NextResponse.json({ error: "Unable to update avatar right now" }, { status: 500 });
   }
 }
