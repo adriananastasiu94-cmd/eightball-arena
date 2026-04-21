@@ -10,7 +10,8 @@
     "lint": "next lint",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "admin:grant-existing-economy": "tsx scripts/grantExistingUsersEconomy.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.7.0",

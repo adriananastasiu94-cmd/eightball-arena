@@ -68,6 +68,15 @@ Original browser-based 8-ball game with server-authoritative multiplayer, premiu
    - `npm run dev`
 8. Open `http://localhost:3000`.
 
+## One-time admin economy grant
+
+To set all existing users to `100000` coins and `100000` cash:
+
+- Ensure `DATABASE_URL` points to the target database.
+- Run `npm run admin:grant-existing-economy`.
+
+The script creates missing `PlayerStats` rows first, then force-updates all existing stats.
+
 ## Production build
 
 - `npm run build`
