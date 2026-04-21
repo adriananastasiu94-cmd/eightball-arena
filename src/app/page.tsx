@@ -32,6 +32,101 @@ type Me = {
   } | null;
 };
 
+type MenuView = "main" | "oneVOne" | "tournaments" | "bots" | "game";
+type BotDifficulty = "easy" | "normal" | "hard" | "pro";
+type TournamentRound = 1 | 2 | 3;
+
+type BotDifficultyConfig = {
+  label: string;
+  reward: number;
+  jitter: number;
+  powerMin: number;
+  powerMax: number;
+  thinkMs: number;
+  missChance: number;
+};
+
+type SandboxSession = {
+  key: number;
+  kind: "bots" | "tournament";
+  difficulty: BotDifficulty;
+  rewardCoins: number;
+  opponentId: string;
+  opponentName: string;
+  roundLabel?: string;
+  tournamentMatchId?: string;
+  resolved: boolean;
+};
+
+type TournamentParticipant = {
+  id: string;
+  name: string;
+  difficulty: BotDifficulty;
+  isUser: boolean;
+};
+
+type TournamentMatch = {
+  id: string;
+  round: TournamentRound;
+  leftId: string | null;
+  rightId: string | null;
+  leftSourceId: string | null;
+  rightSourceId: string | null;
+  winnerId: string | null;
+  status: "pending" | "active" | "done";
+};
+
+type TournamentRun = {
+  id: string;
+  stake: number;
+  pot: number;
+  participants: TournamentParticipant[];
+  matches: TournamentMatch[];
+  currentMatchId: string | null;
+  status: "active" | "eliminated" | "won";
+};
+
+const BOT_CONFIG: Record<BotDifficulty, BotDifficultyConfig> = {
+  easy: {
+    label: "Easy",
+    reward: 1,
+    jitter: 0.42,
+    powerMin: 0.25,
+    powerMax: 0.58,
+    thinkMs: 1250,
+    missChance: 0.45
+  },
+  normal: {
+    label: "Normal",
+    reward: 2,
+    jitter: 0.24,
+    powerMin: 0.32,
+    powerMax: 0.72,
+    thinkMs: 950,
+    missChance: 0.22
+  },
+  hard: {
+    label: "Hard",
+    reward: 5,
+    jitter: 0.14,
+    powerMin: 0.36,
+    powerMax: 0.84,
+    thinkMs: 720,
+    missChance: 0.1
+  },
+  pro: {
+    label: "Pro",
+    reward: 10,
+    jitter: 0.08,
+    powerMin: 0.42,
+    powerMax: 0.95,
+    thinkMs: 520,
+    missChance: 0.04
+  }
+};
+
+const TOURNAMENT_STAKES = [1, 5, 10, 50, 100, 1000] as const;
+
 export default function HomePage() {
   const STAKE_OPTIONS = [1, 2, 3, 5, 10, 25, 50, 100] as const;
   const SESSION_CACHE_KEY = "arena_cached_user_v1";
@@ -44,10 +139,16 @@ export default function HomePage() {
   const [tableIndex, setTableIndex] = useState(0);
   const [lockerOpen, setLockerOpen] = useState(false);
   const [busyCueId, setBusyCueId] = useState<string | null>(null);
-  const [mode, setMode] = useState<"online" | "sandbox">("online");
+  const [mode, setMode] = useState<"online" | "sandbox">("sandbox");
   const [localState, setLocalState] = useState<MatchState | null>(null);
   const [localReplay, setLocalReplay] = useState<{ id: string; frames: MatchState["balls"][]; fps: number } | null>(null);
   const [selectedStake, setSelectedStake] = useState<number>(10);
+  const [menuView, setMenuView] = useState<MenuView>("main");
+  const [pendingQueueStake, setPendingQueueStake] = useState<number | null>(null);
+  const [sandboxSession, setSandboxSession] = useState<SandboxSession | null>(null);
+  const [selectedTournamentStake, setSelectedTournamentStake] = useState<number>(10);
+  const [tournamentRun, setTournamentRun] = useState<TournamentRun | null>(null);
+  const [menuNotice, setMenuNotice] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const socket = useArenaSocket(Boolean(me) && mode === "online");
 
@@ -99,7 +200,7 @@ export default function HomePage() {
   }, [me]);
 
   useEffect(() => {
-    if (mode !== "sandbox" || !me) return;
+    if (mode !== "sandbox" || !me || !sandboxSession) return;
     const players: [PlayerState, PlayerState] = [
       {
         userId: me.id,
@@ -115,21 +216,29 @@ export default function HomePage() {
         }
       },
       {
-        userId: "local_opponent",
-        username: "Practice Ghost",
+        userId: sandboxSession.opponentId,
+        username: sandboxSession.opponentName,
         group: null,
         wins: 0,
         profile: {
           wins: 0,
           losses: 0,
           matchesPlayed: 0,
-          level: 1,
-          region: "Global"
+          level:
+            sandboxSession.difficulty === "pro"
+              ? 6
+              : sandboxSession.difficulty === "hard"
+                ? 4
+                : sandboxSession.difficulty === "normal"
+                  ? 2
+                  : 1,
+          region: sandboxSession.kind === "tournament" ? "Tournament" : "Bot Arena"
         }
       }
     ];
-    setLocalState(createMatchState("sandbox", players));
-  }, [mode, me]);
+    setLocalReplay(null);
+    setLocalState(createMatchState(`sandbox_${sandboxSession.key}`, players));
+  }, [mode, me, sandboxSession]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 100);
@@ -137,10 +246,219 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    if (mode !== "sandbox" || !localState || localReplay) return;
+    if (menuView !== "game" || mode !== "online" || pendingQueueStake === null) return;
+    const id = window.setTimeout(() => {
+      socket.joinQueue(pendingQueueStake);
+      setPendingQueueStake(null);
+    }, 220);
+    return () => window.clearTimeout(id);
+  }, [menuView, mode, pendingQueueStake, socket]);
+
+  const applyCoinDelta = (delta: number) => {
+    setMe((prev) =>
+      prev
+        ? {
+            ...prev,
+            stats: prev.stats
+              ? {
+                  ...prev.stats,
+                  coins: Math.max(0, prev.stats.coins + delta)
+                }
+              : prev.stats
+          }
+        : prev
+    );
+  };
+
+  const openMainMenu = () => {
+    socket.leaveQueue();
+    setPendingQueueStake(null);
+    setMode("sandbox");
+    setMenuView("main");
+    setLocalReplay(null);
+    setLocalState(null);
+    setSandboxSession(null);
+  };
+
+  const startOneVOneMenuFlow = () => {
+    setMenuNotice(null);
+    setMode("online");
+    setMenuView("game");
+    setPendingQueueStake(selectedStake);
+  };
+
+  const startBotsMatch = (difficulty: BotDifficulty) => {
+    const cfg = BOT_CONFIG[difficulty];
+    setMenuNotice(null);
+    setMode("sandbox");
+    setMenuView("game");
+    setSandboxSession({
+      key: Date.now(),
+      kind: "bots",
+      difficulty,
+      rewardCoins: cfg.reward,
+      opponentId: `bot_${difficulty}`,
+      opponentName: `${cfg.label} Bot`,
+      roundLabel: `${cfg.label} Challenge`,
+      resolved: false
+    });
+  };
+
+  const startTournament = () => {
+    if (!me) return;
+    if ((me.stats?.coins ?? 0) < selectedTournamentStake) {
+      setMenuNotice(`Not enough coins. You need ${selectedTournamentStake} to enter this tournament.`);
+      return;
+    }
+
+    const run = createTournamentRun(me, selectedTournamentStake);
+    applyCoinDelta(-selectedTournamentStake);
+    const seeded = autoResolveTournamentMatches(run.matches, run.participants, me.id);
+    const nextMatch = pickNextUserMatch(seeded, me.id);
+    setTournamentRun({
+      ...run,
+      matches: seeded,
+      currentMatchId: nextMatch?.id ?? null,
+      status: nextMatch ? "active" : "eliminated"
+    });
+
+    if (!nextMatch) {
+      setMenuNotice("Tournament could not start. Please retry.");
+      return;
+    }
+
+    const nextOpponent = tournamentOpponent(run.participants, nextMatch, me.id);
+    if (!nextOpponent) {
+      setMenuNotice("Tournament pairing error. Please retry.");
+      return;
+    }
+
+    setMenuNotice(null);
+    setMode("sandbox");
+    setMenuView("game");
+    setSandboxSession({
+      key: Date.now(),
+      kind: "tournament",
+      difficulty: nextOpponent.difficulty,
+      rewardCoins: 0,
+      opponentId: nextOpponent.id,
+      opponentName: nextOpponent.name,
+      tournamentMatchId: nextMatch.id,
+      roundLabel: tournamentRoundLabel(nextMatch.round),
+      resolved: false
+    });
+  };
+
+  useEffect(() => {
+    if (mode !== "sandbox" || !sandboxSession || sandboxSession.resolved || !localState || !me) return;
+    if (localState.phase !== "round_end") return;
+    const winnerUserId = localState.lastOutcome?.winnerUserId;
+
+    if (sandboxSession.kind === "bots") {
+      if (winnerUserId === me.id) {
+        applyCoinDelta(sandboxSession.rewardCoins);
+        setMenuNotice(`Victory. ${sandboxSession.rewardCoins} coins added.`);
+      } else {
+        setMenuNotice("Defeat. Try another bot difficulty.");
+      }
+      setSandboxSession((prev) => (prev ? { ...prev, resolved: true } : prev));
+      return;
+    }
+
+    if (!tournamentRun || !sandboxSession.tournamentMatchId) {
+      setSandboxSession((prev) => (prev ? { ...prev, resolved: true } : prev));
+      return;
+    }
+
+    const currentMatch = tournamentRun.matches.find((m) => m.id === sandboxSession.tournamentMatchId);
+    if (!currentMatch) {
+      setSandboxSession((prev) => (prev ? { ...prev, resolved: true } : prev));
+      return;
+    }
+
+    const fallbackWinnerId =
+      currentMatch.leftId === me.id ? currentMatch.rightId : currentMatch.leftId;
+    const winnerId = winnerUserId === me.id ? me.id : fallbackWinnerId;
+    if (!winnerId) {
+      setSandboxSession((prev) => (prev ? { ...prev, resolved: true } : prev));
+      return;
+    }
+
+    let nextMatches = resolveTournamentMatch(tournamentRun.matches, currentMatch.id, winnerId);
+    nextMatches = autoResolveTournamentMatches(nextMatches, tournamentRun.participants, me.id);
+    const nextUserMatch = pickNextUserMatch(nextMatches, me.id);
+    const championId = tournamentChampionId(nextMatches);
+
+    if (championId === me.id) {
+      applyCoinDelta(tournamentRun.pot);
+      setTournamentRun({
+        ...tournamentRun,
+        matches: nextMatches,
+        currentMatchId: null,
+        status: "won"
+      });
+      setMenuNotice(
+        `Tournament champion. Pot won: ${tournamentRun.pot} coins (entry ${tournamentRun.stake}).`
+      );
+      setSandboxSession((prev) => (prev ? { ...prev, resolved: true } : prev));
+      return;
+    }
+
+    if (winnerId !== me.id || championId) {
+      setTournamentRun({
+        ...tournamentRun,
+        matches: nextMatches,
+        currentMatchId: null,
+        status: championId ? "eliminated" : "active"
+      });
+      if (winnerId !== me.id) setMenuNotice("You were eliminated from the tournament.");
+      else if (championId) setMenuNotice("Tournament completed.");
+      setSandboxSession((prev) => (prev ? { ...prev, resolved: true } : prev));
+      return;
+    }
+
+    if (!nextUserMatch) {
+      setTournamentRun({
+        ...tournamentRun,
+        matches: nextMatches,
+        currentMatchId: null,
+        status: "active"
+      });
+      setSandboxSession((prev) => (prev ? { ...prev, resolved: true } : prev));
+      return;
+    }
+
+    const nextOpponent = tournamentOpponent(tournamentRun.participants, nextUserMatch, me.id);
+    setTournamentRun({
+      ...tournamentRun,
+      matches: nextMatches,
+      currentMatchId: nextUserMatch.id,
+      status: "active"
+    });
+    if (!nextOpponent) {
+      setSandboxSession((prev) => (prev ? { ...prev, resolved: true } : prev));
+      return;
+    }
+
+    setSandboxSession({
+      key: Date.now(),
+      kind: "tournament",
+      difficulty: nextOpponent.difficulty,
+      rewardCoins: 0,
+      opponentId: nextOpponent.id,
+      opponentName: nextOpponent.name,
+      tournamentMatchId: nextUserMatch.id,
+      roundLabel: tournamentRoundLabel(nextUserMatch.round),
+      resolved: false
+    });
+  }, [mode, sandboxSession, localState, me, tournamentRun]);
+
+  useEffect(() => {
+    if (mode !== "sandbox" || !localState || localReplay || !sandboxSession) return;
     if (localState.phase === "round_end" || localState.shotInProgress) return;
-    const botTurn = localState.players[localState.currentTurn]?.userId === "local_opponent";
+    const botTurn = localState.players[localState.currentTurn]?.userId === sandboxSession.opponentId;
     if (!botTurn) return;
+    const cfg = BOT_CONFIG[sandboxSession.difficulty];
 
     const timeoutId = window.setTimeout(() => {
       const liveState = localState;
@@ -178,13 +496,16 @@ export default function HomePage() {
       }, targets[0]);
 
       const baseAngle = Math.atan2(target.pos.y - cue.pos.y, target.pos.x - cue.pos.x);
-      const jitter = (Math.random() - 0.5) * 0.18;
-      const power = Math.min(0.85, Math.max(0.35, Math.hypot(target.pos.x - cue.pos.x, target.pos.y - cue.pos.y) / 420));
+      const deliberateMiss = Math.random() < cfg.missChance;
+      const missOffset = deliberateMiss ? (Math.random() - 0.5) * cfg.jitter * 2.8 : 0;
+      const jitter = (Math.random() - 0.5) * cfg.jitter + missOffset;
+      const targetPower = Math.hypot(target.pos.x - cue.pos.x, target.pos.y - cue.pos.y) / 420;
+      const power = Math.max(cfg.powerMin, Math.min(cfg.powerMax, targetPower + (Math.random() - 0.5) * 0.15));
       onShoot({ angle: baseAngle + jitter, power, spin: { x: 0, y: 0 } });
-    }, 650);
+    }, cfg.thinkMs);
 
     return () => window.clearTimeout(timeoutId);
-  }, [mode, localState, localReplay]);
+  }, [mode, localState, localReplay, sandboxSession]);
 
   const currentState = mode === "online" ? socket.state : localState;
 
@@ -375,6 +696,230 @@ export default function HomePage() {
     );
   }
 
+  if (menuView !== "game") {
+    const selectedStakeIdx = Math.max(
+      0,
+      STAKE_OPTIONS.findIndex((stake) => stake === selectedStake)
+    );
+    const tournamentMatches = tournamentRun
+      ? {
+          quarter: tournamentRun.matches.filter((m) => m.round === 1),
+          semi: tournamentRun.matches.filter((m) => m.round === 2),
+          final: tournamentRun.matches.filter((m) => m.round === 3)
+        }
+      : null;
+
+    return (
+      <main className="mx-auto min-h-screen w-full max-w-[1600px] px-2 pb-6 pt-2 md:px-4">
+        <section className="relative overflow-hidden rounded-3xl border border-[#f4d46a]/40 bg-gradient-to-b from-[#67d4ff] via-[#9ee8ff] to-[#7adf7f] p-4 shadow-[0_20px_50px_rgba(0,0,0,0.35)] md:p-6">
+          <div className="pointer-events-none absolute inset-x-0 top-2 mx-auto h-56 w-[85%] rounded-[120px] bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.78)_0%,rgba(255,255,255,0.16)_52%,rgba(255,255,255,0)_75%)]" />
+          <div className="absolute -left-12 top-16 h-56 w-56 rounded-full bg-[#3a9f48]/35 blur-2xl" />
+          <div className="absolute -right-12 bottom-8 h-52 w-52 rounded-full bg-[#2d8a3f]/30 blur-2xl" />
+
+          <div className="relative z-10 rounded-2xl border border-[#8b4b12]/55 bg-gradient-to-r from-[#7c3608] via-[#a7571c] to-[#7c3608] p-2.5 text-white shadow-[0_10px_24px_rgba(0,0,0,0.28)]">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="font-semibold tracking-wide">Eightball Arena</div>
+              <div className="flex flex-wrap items-center gap-2 text-xs md:text-sm">
+                <span className="rounded-md bg-black/30 px-2 py-1">Level {level}</span>
+                <span className="rounded-md bg-black/30 px-2 py-1">Coins {(me.stats?.coins ?? 0).toLocaleString()}</span>
+                <span className="rounded-md bg-black/30 px-2 py-1">Cash {(me.stats?.cash ?? 0).toLocaleString()}</span>
+                <button
+                  onClick={async () => {
+                    await api<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
+                    window.localStorage.removeItem(SESSION_CACHE_KEY);
+                    setMe(null);
+                  }}
+                  className="rounded-md bg-black/35 px-2 py-1"
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="relative z-10 mt-4 flex flex-wrap items-center justify-center gap-2">
+            <button
+              onClick={() => setMenuView("main")}
+              className={`rounded-xl border px-4 py-2 text-sm font-semibold ${menuView === "main" ? "border-[#1f6cc3] bg-[#58b5ff] text-[#042a47]" : "border-white/40 bg-white/30 text-[#0b385f]"}`}
+            >
+              Menu
+            </button>
+            <button
+              onClick={() => setMenuView("oneVOne")}
+              className={`rounded-xl border px-4 py-2 text-sm font-semibold ${menuView === "oneVOne" ? "border-[#1f6cc3] bg-[#58b5ff] text-[#042a47]" : "border-white/40 bg-white/30 text-[#0b385f]"}`}
+            >
+              1v1
+            </button>
+            <button
+              onClick={() => setMenuView("tournaments")}
+              className={`rounded-xl border px-4 py-2 text-sm font-semibold ${menuView === "tournaments" ? "border-[#1f6cc3] bg-[#58b5ff] text-[#042a47]" : "border-white/40 bg-white/30 text-[#0b385f]"}`}
+            >
+              Tournaments
+            </button>
+            <button
+              onClick={() => setMenuView("bots")}
+              className={`rounded-xl border px-4 py-2 text-sm font-semibold ${menuView === "bots" ? "border-[#1f6cc3] bg-[#58b5ff] text-[#042a47]" : "border-white/40 bg-white/30 text-[#0b385f]"}`}
+            >
+              VS Bots
+            </button>
+          </div>
+
+          {menuNotice && (
+            <div className="relative z-10 mt-3 rounded-xl border border-amber-300/80 bg-[#6f3f11]/85 px-3 py-2 text-sm text-amber-100">
+              {menuNotice}
+            </div>
+          )}
+
+          {menuView === "main" && (
+            <div className="relative z-10 mt-6 grid gap-4 md:grid-cols-3">
+              <MenuTile
+                title="1v1 Duel"
+                subtitle="Queue for real-time online matches"
+                actionLabel="Enter 1v1"
+                onClick={() => setMenuView("oneVOne")}
+                accentClass="from-[#ffd33e] to-[#f2a300]"
+              />
+              <MenuTile
+                title="Tournaments"
+                subtitle="8 players, pyramid bracket, winner takes the pot"
+                actionLabel="Open Bracket"
+                onClick={() => setMenuView("tournaments")}
+                accentClass="from-[#ffdb5e] to-[#f69b2e]"
+              />
+              <MenuTile
+                title="VS Bots"
+                subtitle="Practice against AI with difficulty rewards"
+                actionLabel="Fight Bots"
+                onClick={() => setMenuView("bots")}
+                accentClass="from-[#ffe680] to-[#f1c232]"
+              />
+            </div>
+          )}
+
+          {menuView === "oneVOne" && (
+            <div className="relative z-10 mx-auto mt-6 max-w-3xl rounded-2xl border border-[#a7671d] bg-gradient-to-b from-[#ffd958] to-[#f5ba24] p-5 shadow-[0_18px_36px_rgba(93,41,6,0.35)]">
+              <div className="text-lg font-extrabold text-[#5a2602]">Online 1v1 Matchmaking</div>
+              <p className="mt-1 text-sm text-[#6b3405]/80">Pick your stake and queue into a live head-to-head game.</p>
+              <div className="mt-5 rounded-xl bg-[#7a3f10]/15 p-4">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#5a2602]/85">Stake</div>
+                <input
+                  type="range"
+                  min={0}
+                  max={STAKE_OPTIONS.length - 1}
+                  step={1}
+                  value={selectedStakeIdx}
+                  onChange={(e) => setSelectedStake(STAKE_OPTIONS[Number(e.target.value)] ?? 10)}
+                  className="w-full accent-[#2f8c2d]"
+                />
+                <div className="mt-3 flex flex-wrap justify-center gap-2">
+                  {STAKE_OPTIONS.map((stake) => (
+                    <button
+                      key={`stake-chip-${stake}`}
+                      onClick={() => setSelectedStake(stake)}
+                      className={`rounded-full px-3 py-1 text-sm font-semibold ${selectedStake === stake ? "bg-[#2f8c2d] text-white" : "bg-white/60 text-[#5a2602]"}`}
+                    >
+                      {stake}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-4 text-center text-2xl font-black text-[#5a2602]">{selectedStake} coins</div>
+              </div>
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
+                <button
+                  onClick={startOneVOneMenuFlow}
+                  className="rounded-xl bg-gradient-to-b from-[#53cf2f] to-[#2d8d22] px-8 py-3 text-lg font-extrabold text-white shadow-[0_10px_20px_rgba(26,89,20,0.35)]"
+                >
+                  PLAY
+                </button>
+                <button
+                  onClick={() => setMenuView("main")}
+                  className="rounded-xl bg-[#7b3f11] px-5 py-3 text-sm font-semibold text-white"
+                >
+                  Back
+                </button>
+              </div>
+            </div>
+          )}
+
+          {menuView === "tournaments" && (
+            <div className="relative z-10 mt-6 rounded-2xl border border-[#a7671d] bg-gradient-to-b from-[#ffd958] to-[#f5ba24] p-5 shadow-[0_18px_36px_rgba(93,41,6,0.35)]">
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <div className="text-lg font-extrabold text-[#5a2602]">Tournaments</div>
+                  <p className="text-sm text-[#6b3405]/80">
+                    8-player bracket: 4 quarterfinals, 2 semifinals, 1 final.
+                  </p>
+                </div>
+                <div className="text-sm font-semibold text-[#5a2602]">
+                  Pot: {selectedTournamentStake * 8} coins
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {TOURNAMENT_STAKES.map((stake) => (
+                  <button
+                    key={`tour-stake-${stake}`}
+                    onClick={() => setSelectedTournamentStake(stake)}
+                    className={`rounded-full px-3 py-1.5 text-sm font-semibold ${selectedTournamentStake === stake ? "bg-[#2f8c2d] text-white" : "bg-white/65 text-[#5a2602]"}`}
+                  >
+                    {stake}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-4">
+                <TournamentBracket
+                  run={tournamentRun}
+                  meId={me.id}
+                  quarterMatches={tournamentMatches?.quarter ?? []}
+                  semiMatches={tournamentMatches?.semi ?? []}
+                  finalMatches={tournamentMatches?.final ?? []}
+                />
+              </div>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <button
+                  onClick={startTournament}
+                  className="rounded-xl bg-gradient-to-b from-[#53cf2f] to-[#2d8d22] px-6 py-3 text-base font-extrabold text-white shadow-[0_10px_20px_rgba(26,89,20,0.35)]"
+                >
+                  {tournamentRun?.status === "active" ? "Restart Tournament" : "Enter Tournament"}
+                </button>
+                <button
+                  onClick={() => setMenuView("main")}
+                  className="rounded-xl bg-[#7b3f11] px-5 py-3 text-sm font-semibold text-white"
+                >
+                  Back
+                </button>
+              </div>
+            </div>
+          )}
+
+          {menuView === "bots" && (
+            <div className="relative z-10 mt-6 grid gap-3 md:grid-cols-2">
+              {(Object.keys(BOT_CONFIG) as BotDifficulty[]).map((difficulty) => {
+                const cfg = BOT_CONFIG[difficulty];
+                return (
+                  <div
+                    key={`bot-card-${difficulty}`}
+                    className="rounded-2xl border border-[#a7671d] bg-gradient-to-b from-[#ffd958] to-[#f5ba24] p-4 shadow-[0_18px_36px_rgba(93,41,6,0.35)]"
+                  >
+                    <div className="text-lg font-extrabold text-[#5a2602]">{cfg.label}</div>
+                    <div className="text-sm text-[#6b3405]/80">
+                      Reward on win: {cfg.reward} {cfg.reward === 1 ? "coin" : "coins"}
+                    </div>
+                    <button
+                      onClick={() => startBotsMatch(difficulty)}
+                      className="mt-4 rounded-xl bg-gradient-to-b from-[#53cf2f] to-[#2d8d22] px-5 py-2.5 text-sm font-extrabold text-white"
+                    >
+                      Play {cfg.label}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto min-h-screen w-full max-w-[1600px] px-2 pb-6 pt-2 md:px-4">
       <header className="sticky top-2 z-30 rounded-xl border border-white/10 bg-[#071622]/90 px-3 py-2 shadow-glow backdrop-blur md:px-4">
@@ -384,11 +929,14 @@ export default function HomePage() {
             <p className="text-xs text-white/65">Welcome back, {me.username}</p>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            <button onClick={() => { setMode("online"); arenaAudio.uiTap(); }} className={`rounded-md px-2.5 py-1.5 text-xs md:text-sm ${mode === "online" ? "bg-brass text-slate" : "bg-white/10 text-white"}`}>
-              Online 1v1
-            </button>
-            <button onClick={() => { setMode("sandbox"); arenaAudio.uiTap(); }} className={`rounded-md px-2.5 py-1.5 text-xs md:text-sm ${mode === "sandbox" ? "bg-brass text-slate" : "bg-white/10 text-white"}`}>
-              Sandbox
+            <button
+              onClick={() => {
+                arenaAudio.uiTap();
+                openMainMenu();
+              }}
+              className="rounded-md bg-brass px-2.5 py-1.5 text-xs text-slate md:text-sm"
+            >
+              Main Menu
             </button>
             <button
               onClick={async () => {
@@ -637,6 +1185,330 @@ export default function HomePage() {
         onClose={() => setLockerOpen(false)}
       />
     </main>
+  );
+}
+
+function shuffle<T>(items: T[]): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function botSkillScore(difficulty: BotDifficulty): number {
+  switch (difficulty) {
+    case "easy":
+      return 1;
+    case "normal":
+      return 2;
+    case "hard":
+      return 3;
+    case "pro":
+      return 4;
+    default:
+      return 2;
+  }
+}
+
+function tournamentRoundLabel(round: TournamentRound): string {
+  if (round === 1) return "Quarterfinal";
+  if (round === 2) return "Semifinal";
+  return "Final";
+}
+
+function createTournamentRun(me: Me, stake: number): TournamentRun {
+  const botPool = [
+    { id: "tour_bot_1", name: "Lynx", difficulty: "normal" as BotDifficulty },
+    { id: "tour_bot_2", name: "Breaker", difficulty: "hard" as BotDifficulty },
+    { id: "tour_bot_3", name: "Ghost", difficulty: "easy" as BotDifficulty },
+    { id: "tour_bot_4", name: "Swerve", difficulty: "normal" as BotDifficulty },
+    { id: "tour_bot_5", name: "Viper", difficulty: "hard" as BotDifficulty },
+    { id: "tour_bot_6", name: "Atlas", difficulty: "pro" as BotDifficulty },
+    { id: "tour_bot_7", name: "Comet", difficulty: "normal" as BotDifficulty }
+  ];
+
+  const entrants = shuffle([
+    {
+      id: me.id,
+      name: me.username,
+      difficulty: "normal" as BotDifficulty,
+      isUser: true
+    },
+    ...botPool.map((b) => ({ ...b, isUser: false }))
+  ]);
+
+  const quarter: TournamentMatch[] = [
+    {
+      id: "q1",
+      round: 1,
+      leftId: entrants[0]?.id ?? null,
+      rightId: entrants[1]?.id ?? null,
+      leftSourceId: null,
+      rightSourceId: null,
+      winnerId: null,
+      status: "pending"
+    },
+    {
+      id: "q2",
+      round: 1,
+      leftId: entrants[2]?.id ?? null,
+      rightId: entrants[3]?.id ?? null,
+      leftSourceId: null,
+      rightSourceId: null,
+      winnerId: null,
+      status: "pending"
+    },
+    {
+      id: "q3",
+      round: 1,
+      leftId: entrants[4]?.id ?? null,
+      rightId: entrants[5]?.id ?? null,
+      leftSourceId: null,
+      rightSourceId: null,
+      winnerId: null,
+      status: "pending"
+    },
+    {
+      id: "q4",
+      round: 1,
+      leftId: entrants[6]?.id ?? null,
+      rightId: entrants[7]?.id ?? null,
+      leftSourceId: null,
+      rightSourceId: null,
+      winnerId: null,
+      status: "pending"
+    }
+  ];
+
+  const semi: TournamentMatch[] = [
+    {
+      id: "s1",
+      round: 2,
+      leftId: null,
+      rightId: null,
+      leftSourceId: "q1",
+      rightSourceId: "q2",
+      winnerId: null,
+      status: "pending"
+    },
+    {
+      id: "s2",
+      round: 2,
+      leftId: null,
+      rightId: null,
+      leftSourceId: "q3",
+      rightSourceId: "q4",
+      winnerId: null,
+      status: "pending"
+    }
+  ];
+
+  const final: TournamentMatch[] = [
+    {
+      id: "f1",
+      round: 3,
+      leftId: null,
+      rightId: null,
+      leftSourceId: "s1",
+      rightSourceId: "s2",
+      winnerId: null,
+      status: "pending"
+    }
+  ];
+
+  return {
+    id: `tour_${Date.now()}`,
+    stake,
+    pot: stake * 8,
+    participants: entrants,
+    matches: [...quarter, ...semi, ...final],
+    currentMatchId: null,
+    status: "active"
+  };
+}
+
+function hydrateMatchSlots(matches: TournamentMatch[]): TournamentMatch[] {
+  const byId = new Map(matches.map((m) => [m.id, m]));
+  return matches.map((match) => {
+    let leftId = match.leftId;
+    let rightId = match.rightId;
+    if (match.leftSourceId) leftId = byId.get(match.leftSourceId)?.winnerId ?? null;
+    if (match.rightSourceId) rightId = byId.get(match.rightSourceId)?.winnerId ?? null;
+    return {
+      ...match,
+      leftId,
+      rightId
+    };
+  });
+}
+
+function autoResolveTournamentMatches(
+  matches: TournamentMatch[],
+  participants: TournamentParticipant[],
+  userId: string
+): TournamentMatch[] {
+  const participantById = new Map(participants.map((p) => [p.id, p]));
+  let next = matches.map((m) => ({ ...m }));
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    next = hydrateMatchSlots(next);
+    for (const match of next) {
+      if (match.winnerId || !match.leftId || !match.rightId) continue;
+      if (match.leftId === userId || match.rightId === userId) continue;
+      const left = participantById.get(match.leftId);
+      const right = participantById.get(match.rightId);
+      if (!left || !right) continue;
+
+      const leftSkill = botSkillScore(left.difficulty);
+      const rightSkill = botSkillScore(right.difficulty);
+      const total = leftSkill + rightSkill;
+      const leftWin = Math.random() < leftSkill / total;
+      match.winnerId = leftWin ? left.id : right.id;
+      match.status = "done";
+      changed = true;
+    }
+  }
+
+  return next;
+}
+
+function pickNextUserMatch(matches: TournamentMatch[], userId: string): TournamentMatch | null {
+  return (
+    matches.find(
+      (match) =>
+        !match.winnerId &&
+        Boolean(match.leftId) &&
+        Boolean(match.rightId) &&
+        (match.leftId === userId || match.rightId === userId)
+    ) ?? null
+  );
+}
+
+function resolveTournamentMatch(
+  matches: TournamentMatch[],
+  matchId: string,
+  winnerId: string
+): TournamentMatch[] {
+  return matches.map((match) =>
+    match.id === matchId
+      ? {
+          ...match,
+          winnerId,
+          status: "done"
+        }
+      : match
+  );
+}
+
+function tournamentChampionId(matches: TournamentMatch[]): string | null {
+  return matches.find((match) => match.round === 3)?.winnerId ?? null;
+}
+
+function tournamentOpponent(
+  participants: TournamentParticipant[],
+  match: TournamentMatch,
+  userId: string
+): TournamentParticipant | null {
+  const opponentId = match.leftId === userId ? match.rightId : match.leftId;
+  if (!opponentId) return null;
+  return participants.find((p) => p.id === opponentId) ?? null;
+}
+
+function formatParticipantName(
+  run: TournamentRun | null,
+  id: string | null,
+  meId: string
+): string {
+  if (!id || !run) return "TBD";
+  const participant = run.participants.find((p) => p.id === id);
+  if (!participant) return "TBD";
+  return participant.id === meId ? `${participant.name} (You)` : participant.name;
+}
+
+function MenuTile({
+  title,
+  subtitle,
+  actionLabel,
+  accentClass,
+  onClick
+}: {
+  title: string;
+  subtitle: string;
+  actionLabel: string;
+  accentClass: string;
+  onClick: () => void;
+}) {
+  return (
+    <article className={`rounded-2xl border border-[#a7671d] bg-gradient-to-b ${accentClass} p-4 shadow-[0_18px_36px_rgba(93,41,6,0.35)]`}>
+      <h3 className="text-xl font-extrabold text-[#5a2602]">{title}</h3>
+      <p className="mt-1 text-sm text-[#6b3405]/80">{subtitle}</p>
+      <button
+        onClick={onClick}
+        className="mt-4 rounded-xl bg-gradient-to-b from-[#53cf2f] to-[#2d8d22] px-5 py-2.5 text-sm font-extrabold text-white"
+      >
+        {actionLabel}
+      </button>
+    </article>
+  );
+}
+
+function TournamentBracket({
+  run,
+  meId,
+  quarterMatches,
+  semiMatches,
+  finalMatches
+}: {
+  run: TournamentRun | null;
+  meId: string;
+  quarterMatches: TournamentMatch[];
+  semiMatches: TournamentMatch[];
+  finalMatches: TournamentMatch[];
+}) {
+  const MatchBox = ({ match }: { match: TournamentMatch }) => (
+    <div className={`rounded-lg border px-2 py-2 text-xs ${match.status === "done" ? "border-emerald-300/70 bg-emerald-100/35" : "border-white/60 bg-white/35"}`}>
+      <div>{formatParticipantName(run, match.leftId, meId)}</div>
+      <div className="mt-1">{formatParticipantName(run, match.rightId, meId)}</div>
+      <div className="mt-1 text-[10px] uppercase tracking-wide text-[#5a2602]/75">
+        {tournamentRoundLabel(match.round)}
+      </div>
+      <div className="text-[10px] font-semibold text-[#5a2602]/85">
+        Winner: {formatParticipantName(run, match.winnerId, meId)}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="grid gap-3 md:grid-cols-3">
+      <div className="space-y-2">
+        <div className="text-[11px] font-bold uppercase tracking-widest text-[#5a2602]/70">Quarterfinals</div>
+        {quarterMatches.length > 0 ? (
+          quarterMatches.map((match) => <MatchBox key={`quarter-${match.id}`} match={match} />)
+        ) : (
+          <div className="rounded-lg border border-white/50 bg-white/30 px-2 py-2 text-xs text-[#5a2602]">No bracket yet</div>
+        )}
+      </div>
+      <div className="space-y-2">
+        <div className="text-[11px] font-bold uppercase tracking-widest text-[#5a2602]/70">Semifinals</div>
+        {semiMatches.length > 0 ? (
+          semiMatches.map((match) => <MatchBox key={`semi-${match.id}`} match={match} />)
+        ) : (
+          <div className="rounded-lg border border-white/50 bg-white/30 px-2 py-2 text-xs text-[#5a2602]">No bracket yet</div>
+        )}
+      </div>
+      <div className="space-y-2">
+        <div className="text-[11px] font-bold uppercase tracking-widest text-[#5a2602]/70">Final</div>
+        {finalMatches.length > 0 ? (
+          finalMatches.map((match) => <MatchBox key={`final-${match.id}`} match={match} />)
+        ) : (
+          <div className="rounded-lg border border-white/50 bg-white/30 px-2 py-2 text-xs text-[#5a2602]">No bracket yet</div>
+        )}
+      </div>
+    </div>
   );
 }
 
