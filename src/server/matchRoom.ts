@@ -192,6 +192,8 @@ export class MatchRoom {
       .filter((_, idx) => idx % sampleStep === 0 || idx === sim.frames.length - 1)
       .map((frame) => frame.map((b) => ({ ...b, pos: { ...b.pos }, vel: { ...b.vel } })));
     const replayDurationMs = Math.max(300, Math.round((replayFrames.length / replayFps) * 1000));
+    const replayStartLagMs = 140;
+    const replayServerStartMs = Date.now() + replayStartLagMs;
 
     const pocketed = sim.events.filter((e) => e.type === "pocket").map((e) => e.ballId);
     const firstContactEvent = sim.events.find((e) => e.type === "first_contact") as { targetBallId: number } | undefined;
@@ -212,10 +214,11 @@ export class MatchRoom {
       frames: replayFrames,
       fps: replayFps,
       durationMs: replayDurationMs,
-      shotCount: this.state.shotCount
+      shotCount: this.state.shotCount,
+      serverStartMs: replayServerStartMs
     });
     this.broadcastState();
-    this.scheduleShotUnlock(replayDurationMs);
+    this.scheduleShotUnlock(replayDurationMs + replayStartLagMs);
 
     if (outcome.winnerUserId) {
       this.finish(outcome.winnerUserId, outcome.legalEight ? "8_ball" : "foul_on_8");

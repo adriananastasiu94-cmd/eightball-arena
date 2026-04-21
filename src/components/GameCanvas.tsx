@@ -17,7 +17,7 @@ type Props = {
   onShotPowerChange?: (nextPower: number) => void;
   cueStyle?: CueStyle;
   tableSkin?: TableSkin;
-  replay: { id: string; frames: BallState[][]; fps: number } | null;
+  replay: { id: string; frames: BallState[][]; fps: number; startAtMs?: number } | null;
   inputLocked?: boolean;
   lockLabel?: string | null;
   onReplayDone?: () => void;
@@ -29,6 +29,14 @@ type AimState = {
   active: boolean;
   angle: number;
   power: number;
+};
+type Vec3 = { x: number; y: number; z: number };
+type BallPose = {
+  u: Vec3;
+  v: Vec3;
+  w: Vec3;
+  x: number;
+  y: number;
 };
 
 const BG_GRAD = ["#081318", "#0d1b2a"];
@@ -55,10 +63,8 @@ export function GameCanvas({
   const [aim, setAim] = useState<AimState>({ active: false, angle: 0, power: 0.35 });
   const aimRef = useRef<AimState>(aim);
   const aimSyncRaf = useRef<number | null>(null);
-  const rollAngleRef = useRef<Map<number, number>>(new Map());
-  const rollDirRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const ballPoseRef = useRef<Map<number, BallPose>>(new Map());
   const replayDoneRef = useRef<Props["onReplayDone"]>(onReplayDone);
-  const lastFrameRef = useRef<number>(0);
   const cuePlacementRaf = useRef<number | null>(null);
   const pendingCuePlacementRef = useRef<{ x: number; y: number } | null>(null);
   const aimingPointerRef = useRef<number | null>(null);
@@ -118,6 +124,10 @@ export function GameCanvas({
   }, [state?.ballInHand]);
 
   useEffect(() => {
+    ballPoseRef.current.clear();
+  }, [state?.matchId]);
+
+  useEffect(() => {
     if (!replay || replay.frames.length === 0) {
       setReplayProgress(0);
       return;
@@ -126,11 +136,12 @@ export function GameCanvas({
     let raf = 0;
     let finished = false;
     const frameDurationMs = 1000 / Math.max(1, replay.fps);
-    const startedAt = performance.now();
+    const warmupDelayMs = Math.max(0, (replay.startAtMs ?? Date.now()) - Date.now());
+    const startedAt = performance.now() + warmupDelayMs;
 
     const tick = (now: number) => {
       const elapsed = now - startedAt;
-      const progress = Math.min(replay.frames.length - 1, elapsed / frameDurationMs);
+      const progress = Math.max(0, Math.min(replay.frames.length - 1, elapsed / frameDurationMs));
       setReplayProgress(progress);
       if (progress < replay.frames.length - 1) {
         raf = window.requestAnimationFrame(tick);
@@ -186,8 +197,6 @@ export function GameCanvas({
       canvas.style.height = `${rect.width * 0.58}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      const dt = lastFrameRef.current > 0 ? Math.min(0.05, (now - lastFrameRef.current) / 1000) : 1 / 60;
-      lastFrameRef.current = now;
       const width = rect.width;
       const height = rect.width * 0.58;
       const scale = Math.min(width / state.table.width, height / state.table.height);
@@ -451,104 +460,25 @@ export function GameCanvas({
       }
 
       const renderBalls = interpolatedReplayBalls ?? state.balls;
+      const poseMap = ballPoseRef.current;
       for (const ball of renderBalls) {
         if (ball.pocketed) continue;
         const baseColor = colorForBall(ball.number);
         const isCue = ball.kind === "cue";
         const isEight = ball.kind === "eight";
         const isStripe = ball.kind === "stripe";
-        const speed = Math.hypot(ball.vel.x, ball.vel.y);
-        const currentRoll = rollAngleRef.current.get(ball.id) ?? 0;
-        const nextRoll = speed > 0.9 ? currentRoll + (speed * dt) / Math.max(1, ball.radius) : currentRoll;
-        rollAngleRef.current.set(ball.id, nextRoll);
-        const prevDir = rollDirRef.current.get(ball.id) ?? { x: 1, y: 0 };
-        const travelDir =
-          speed > 0.45
-            ? { x: ball.vel.x / speed, y: ball.vel.y / speed }
-            : prevDir;
-        const dir = norm({
-          x: prevDir.x * 0.84 + travelDir.x * 0.16,
-          y: prevDir.y * 0.84 + travelDir.y * 0.16
-        });
-        rollDirRef.current.set(ball.id, dir);
-        const perp = { x: -dir.y, y: dir.x };
-        const rollSin = Math.sin(nextRoll);
-        const rollCos = Math.cos(nextRoll);
+        const pose = getOrCreateBallPose(poseMap, ball);
+        advanceBallPose(pose, ball);
 
-        ctx.beginPath();
-        ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
-        ctx.fillStyle = isCue ? "#f6f8fb" : isEight ? "#12161d" : isStripe ? "#fbfcfd" : baseColor;
-        ctx.fill();
-        ctx.strokeStyle = "rgba(0,0,0,0.28)";
-        ctx.lineWidth = 0.85;
-        ctx.stroke();
-
+        const bodyColor = isCue ? "#f6f8fb" : isEight ? "#12161d" : isStripe ? "#f9fbfd" : baseColor;
+        drawSphereBody(ctx, ball, bodyColor);
         if (isStripe) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
-          ctx.clip();
-          ctx.fillStyle = baseColor;
-          const bandH = ball.radius * (0.56 + Math.abs(rollCos) * 0.34);
-          const bandOffset = rollSin * ball.radius * 0.72;
-          ctx.save();
-          ctx.translate(ball.pos.x + dir.x * bandOffset, ball.pos.y + dir.y * bandOffset * 0.32);
-          ctx.rotate(Math.atan2(dir.y, dir.x));
-          ctx.fillRect(-ball.radius, -bandH / 2, ball.radius * 2, bandH);
-          ctx.restore();
-          ctx.restore();
+          drawStripeBand(ctx, ball, pose, baseColor);
         }
-
         if (!isCue) {
-          const seed = (ball.number * 0.47) % (Math.PI * 2);
-          const spotPhase = nextRoll + seed;
-          const spotForward = Math.sin(spotPhase);
-          const spotDepth = Math.cos(spotPhase);
-          const frontness = (spotDepth + 1) * 0.5;
-          const labelOffset = {
-            x: dir.x * spotForward * ball.radius * 0.72 + perp.x * spotDepth * ball.radius * 0.21,
-            y: dir.y * spotForward * ball.radius * 0.28 + perp.y * spotDepth * ball.radius * 0.09
-          };
-          if (frontness > 0.06) {
-            const labelR = Math.max(2.2, ball.radius * (0.2 + frontness * 0.24));
-            ctx.fillStyle = "#ffffff";
-            ctx.beginPath();
-            ctx.arc(ball.pos.x + labelOffset.x, ball.pos.y + labelOffset.y, labelR, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.save();
-            ctx.translate(ball.pos.x + labelOffset.x, ball.pos.y + labelOffset.y);
-            ctx.rotate(Math.atan2(dir.y, dir.x) + spotPhase * 0.12);
-            ctx.fillStyle = "#11161f";
-            ctx.font = `${Math.max(7.5, ball.radius * 0.82 * (0.65 + frontness * 0.45))}px sans-serif`;
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(String(ball.number), 0, 0.4);
-            ctx.restore();
-          }
+          drawSingleSpot(ctx, ball, pose, ball.number);
         }
-
-        const rollR = ball.radius * 0.5;
-        const rx = rollCos * rollR;
-        const ry = rollSin * rollR;
-        ctx.fillStyle = "rgba(0,0,0,0.2)";
-        ctx.beginPath();
-        ctx.arc(ball.pos.x + rx * 0.32, ball.pos.y + ry * 0.32, Math.max(1.2, ball.radius * 0.15), 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = "rgba(255,255,255,0.3)";
-        ctx.lineWidth = 0.8;
-        ctx.beginPath();
-        ctx.moveTo(ball.pos.x - rx * 0.42, ball.pos.y - ry * 0.42);
-        ctx.lineTo(ball.pos.x + rx * 0.42, ball.pos.y + ry * 0.42);
-        ctx.stroke();
-
-        const shine = ctx.createRadialGradient(ball.pos.x - 4, ball.pos.y - 4, 0, ball.pos.x, ball.pos.y, ball.radius);
-        shine.addColorStop(0, "rgba(255,255,255,0.5)");
-        shine.addColorStop(1, "rgba(255,255,255,0)");
-        ctx.fillStyle = shine;
-        ctx.beginPath();
-        ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
-        ctx.fill();
+        drawSpecular(ctx, ball);
       }
 
       ctx.restore();
@@ -767,6 +697,197 @@ function drawPocketJaw(ctx: CanvasRenderingContext2D, x: number, y: number, radi
   ctx.strokeStyle = "rgba(255,255,255,0.08)";
   ctx.lineWidth = 0.8;
   ctx.stroke();
+}
+
+function getOrCreateBallPose(store: Map<number, BallPose>, ball: BallState): BallPose {
+  const existing = store.get(ball.id);
+  if (existing) return existing;
+  const pose: BallPose = {
+    u: { x: 1, y: 0, z: 0 },
+    v: { x: 0, y: 1, z: 0 },
+    w: { x: 0, y: 0, z: 1 },
+    x: ball.pos.x,
+    y: ball.pos.y
+  };
+  store.set(ball.id, pose);
+  return pose;
+}
+
+function advanceBallPose(pose: BallPose, ball: BallState) {
+  const dx = ball.pos.x - pose.x;
+  const dy = ball.pos.y - pose.y;
+  const dist = Math.hypot(dx, dy);
+  pose.x = ball.pos.x;
+  pose.y = ball.pos.y;
+  if (dist < 1e-4) return;
+  if (dist > ball.radius * 2.6) return;
+
+  const axis = vec3Norm({ x: -dy, y: dx, z: 0 });
+  if (vec3Len(axis) < 1e-6) return;
+  const angle = dist / Math.max(1, ball.radius);
+
+  pose.u = vec3Rotate(pose.u, axis, angle);
+  pose.v = vec3Rotate(pose.v, axis, angle);
+  pose.w = vec3Rotate(pose.w, axis, angle);
+
+  pose.w = vec3Norm(pose.w);
+  pose.u = vec3Sub(pose.u, vec3Scale(pose.w, vec3Dot(pose.u, pose.w)));
+  if (vec3Len(pose.u) < 1e-5) {
+    pose.u = Math.abs(pose.w.x) < 0.9 ? vec3Cross({ x: 1, y: 0, z: 0 }, pose.w) : vec3Cross({ x: 0, y: 1, z: 0 }, pose.w);
+  }
+  pose.u = vec3Norm(pose.u);
+  pose.v = vec3Norm(vec3Cross(pose.w, pose.u));
+}
+
+function drawSphereBody(ctx: CanvasRenderingContext2D, ball: BallState, color: string) {
+  const grad = ctx.createRadialGradient(
+    ball.pos.x - ball.radius * 0.42,
+    ball.pos.y - ball.radius * 0.48,
+    ball.radius * 0.1,
+    ball.pos.x,
+    ball.pos.y,
+    ball.radius * 1.05
+  );
+  grad.addColorStop(0, brighten(color, 0.2));
+  grad.addColorStop(0.35, color);
+  grad.addColorStop(1, darken(color, 0.28));
+
+  ctx.beginPath();
+  ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(0,0,0,0.3)";
+  ctx.lineWidth = 0.85;
+  ctx.stroke();
+}
+
+function drawStripeBand(ctx: CanvasRenderingContext2D, ball: BallState, pose: BallPose, color: string) {
+  const axis = { x: pose.w.x, y: pose.w.y };
+  const axisLen = Math.hypot(axis.x, axis.y);
+  const bandAngle = axisLen > 1e-4 ? Math.atan2(axis.y, axis.x) + Math.PI / 2 : 0;
+  const squash = Math.max(0.14, Math.abs(pose.w.z));
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.translate(ball.pos.x, ball.pos.y);
+  ctx.rotate(bandAngle);
+  ctx.scale(1, squash);
+
+  const stripeGrad = ctx.createLinearGradient(0, -ball.radius, 0, ball.radius);
+  stripeGrad.addColorStop(0, brighten(color, 0.08));
+  stripeGrad.addColorStop(0.5, color);
+  stripeGrad.addColorStop(1, darken(color, 0.12));
+  ctx.fillStyle = stripeGrad;
+  ctx.fillRect(-ball.radius * 1.6, -ball.radius * 0.58, ball.radius * 3.2, ball.radius * 1.16);
+  ctx.restore();
+}
+
+function drawSingleSpot(ctx: CanvasRenderingContext2D, ball: BallState, pose: BallPose, number: number) {
+  const front = pose.w.z;
+  if (front < 0.07) return;
+
+  const cx = ball.pos.x + pose.w.x * ball.radius * 0.58;
+  const cy = ball.pos.y + pose.w.y * ball.radius * 0.58;
+  const r = Math.max(2.4, ball.radius * (0.14 + front * 0.2));
+
+  const spotGrad = ctx.createRadialGradient(cx - r * 0.2, cy - r * 0.2, r * 0.22, cx, cy, r);
+  spotGrad.addColorStop(0, "#fffffd");
+  spotGrad.addColorStop(1, "#ede8d8");
+  ctx.fillStyle = spotGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  const labelDir = { x: pose.u.x, y: pose.u.y };
+  const labelAngle = Math.hypot(labelDir.x, labelDir.y) > 1e-4 ? Math.atan2(labelDir.y, labelDir.x) : 0;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(labelAngle);
+  ctx.fillStyle = "#11161f";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `${Math.max(7, r * 1.16)}px sans-serif`;
+  ctx.fillText(String(number), 0, 0.2);
+  ctx.restore();
+}
+
+function drawSpecular(ctx: CanvasRenderingContext2D, ball: BallState) {
+  const shine1 = ctx.createRadialGradient(
+    ball.pos.x - ball.radius * 0.36,
+    ball.pos.y - ball.radius * 0.44,
+    ball.radius * 0.05,
+    ball.pos.x - ball.radius * 0.36,
+    ball.pos.y - ball.radius * 0.44,
+    ball.radius * 0.44
+  );
+  shine1.addColorStop(0, "rgba(255,255,255,0.48)");
+  shine1.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = shine1;
+  ctx.beginPath();
+  ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  ctx.beginPath();
+  ctx.ellipse(
+    ball.pos.x + ball.radius * 0.12,
+    ball.pos.y + ball.radius * 0.42,
+    ball.radius * 0.26,
+    ball.radius * 0.14,
+    -0.35,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+}
+
+function vec3Dot(a: Vec3, b: Vec3): number {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function vec3Scale(v: Vec3, s: number): Vec3 {
+  return { x: v.x * s, y: v.y * s, z: v.z * s };
+}
+
+function vec3Sub(a: Vec3, b: Vec3): Vec3 {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+}
+
+function vec3Cross(a: Vec3, b: Vec3): Vec3 {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x
+  };
+}
+
+function vec3Len(v: Vec3): number {
+  return Math.hypot(v.x, v.y, v.z);
+}
+
+function vec3Norm(v: Vec3): Vec3 {
+  const len = vec3Len(v);
+  if (len < 1e-8) return { x: 0, y: 0, z: 0 };
+  return { x: v.x / len, y: v.y / len, z: v.z / len };
+}
+
+function vec3Rotate(v: Vec3, axis: Vec3, angle: number): Vec3 {
+  const a = vec3Norm(axis);
+  if (vec3Len(a) < 1e-8) return v;
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const term1 = vec3Scale(v, c);
+  const term2 = vec3Scale(vec3Cross(a, v), s);
+  const term3 = vec3Scale(a, vec3Dot(a, v) * (1 - c));
+  return {
+    x: term1.x + term2.x + term3.x,
+    y: term1.y + term2.y + term3.y,
+    z: term1.z + term2.z + term3.z
+  };
 }
 
 function colorForBall(number: number): string {

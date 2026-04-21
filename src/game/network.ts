@@ -14,7 +14,13 @@ export type ServerToClientEvents = {
   "queue:status": (payload: { inQueue: boolean; eta: number | null }) => void;
   "match:found": (payload: { matchId: string; opponent: { username: string; avatarUrl: string | null } }) => void;
   "match:state": (payload: { state: MatchState; serverTime: number }) => void;
-  "match:replay": (payload: { frames: MatchState["balls"][]; fps: number; durationMs?: number; shotCount?: number }) => void;
+  "match:replay": (payload: {
+    frames: MatchState["balls"][];
+    fps: number;
+    durationMs?: number;
+    shotCount?: number;
+    serverStartMs?: number;
+  }) => void;
   "match:presence": (payload: { userId: string; active: boolean; angle: number; power: number; t: number }) => void;
   "match:shot-rejected": (payload: { reason: string }) => void;
   "match:ended": (payload: { winnerUserId: string | null; reason: string }) => void;

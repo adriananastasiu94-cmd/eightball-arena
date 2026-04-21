@@ -13,7 +13,9 @@ export function useArenaSocket(enabled: boolean) {
   const [state, setState] = useState<MatchState | null>(null);
   const [matchFound, setMatchFound] = useState(false);
   const [result, setResult] = useState<{ winnerUserId: string | null; reason: string } | null>(null);
-  const [replay, setReplay] = useState<{ id: string; frames: BallState[][]; fps: number } | null>(null);
+  const [replay, setReplay] = useState<{ id: string; frames: BallState[][]; fps: number; startAtMs?: number } | null>(
+    null
+  );
   const [isShotPending, setIsShotPending] = useState(false);
   const [shotError, setShotError] = useState<string | null>(null);
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
@@ -23,6 +25,7 @@ export function useArenaSocket(enabled: boolean) {
   const shotPendingRef = useRef(false);
   const lastReplayShotRef = useRef<number | null>(null);
   const lastCuePlaceRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const serverOffsetRef = useRef(0);
 
   useEffect(() => {
     if (!enabled) return;
@@ -51,7 +54,11 @@ export function useArenaSocket(enabled: boolean) {
       setState(nextState);
       if (typeof serverTime === "number") {
         const rawOffset = serverTime - Date.now();
-        setServerOffsetMs((prev) => prev * 0.75 + rawOffset * 0.25);
+        setServerOffsetMs((prev) => {
+          const next = prev * 0.75 + rawOffset * 0.25;
+          serverOffsetRef.current = next;
+          return next;
+        });
       }
       if (!nextState.shotInProgress) {
         shotPendingRef.current = false;
@@ -68,11 +75,17 @@ export function useArenaSocket(enabled: boolean) {
         typeof payload.durationMs === "number"
           ? payload.durationMs
           : Math.max(300, Math.round((payload.frames.length / Math.max(1, payload.fps)) * 1000));
+      const localStartAtMs =
+        typeof payload.serverStartMs === "number"
+          ? payload.serverStartMs - serverOffsetRef.current
+          : Date.now();
+      const startupDelayMs = Math.max(0, Math.round(localStartAtMs - Date.now()));
 
       setReplay({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         frames: payload.frames,
-        fps: payload.fps
+        fps: payload.fps,
+        startAtMs: localStartAtMs
       });
       setPresenceByUser((prev) => {
         const next: Record<string, PresencePayload> = {};
@@ -87,7 +100,7 @@ export function useArenaSocket(enabled: boolean) {
       lockTimerRef.current = window.setTimeout(() => {
         shotPendingRef.current = false;
         setIsShotPending(false);
-      }, durationMs + 24);
+      }, startupDelayMs + durationMs + 24);
     });
     socket.on("match:ended", (payload) => setResult(payload));
     socket.on("match:presence", (payload: PresencePayload) => {
