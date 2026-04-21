@@ -157,6 +157,15 @@ export default function HomePage() {
   const [menuNotice, setMenuNotice] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const socket = useArenaSocket(Boolean(me) && mode === "online");
+  const opponentPresence = useMemo(() => {
+    if (!me) return null;
+    const all = Object.values(socket.presenceByUser ?? {});
+    if (all.length === 0) return null;
+    const latest = all
+      .filter((p) => p.userId !== me.id)
+      .sort((a, b) => b.t - a.t)[0];
+    return latest ?? null;
+  }, [socket.presenceByUser, me]);
 
   useEffect(() => {
     const cached = window.localStorage.getItem(SESSION_CACHE_KEY);
@@ -1087,6 +1096,14 @@ export default function HomePage() {
             replay={mode === "online" ? socket.replay : localReplay}
             inputLocked={mode === "online" ? socket.shotLocked : Boolean(localReplay)}
             lockLabel={mode === "online" ? "Waiting for shot result..." : "Playing shot..."}
+            remotePresence={mode === "online" ? opponentPresence : null}
+            onPresenceUpdate={
+              mode === "online"
+                ? (payload) => {
+                    socket.sendPresence(payload);
+                  }
+                : undefined
+            }
             onReplayDone={() => {
               if (mode === "online") socket.clearReplay();
               else setLocalReplay(null);

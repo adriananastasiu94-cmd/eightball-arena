@@ -20,6 +20,8 @@ type Props = {
   inputLocked?: boolean;
   lockLabel?: string | null;
   onReplayDone?: () => void;
+  remotePresence?: { userId: string; active: boolean; angle: number; power: number; t: number } | null;
+  onPresenceUpdate?: (payload: { active: boolean; angle: number; power: number }) => void;
 };
 
 type AimState = {
@@ -43,7 +45,9 @@ export function GameCanvas({
   replay,
   inputLocked = false,
   lockLabel = null,
-  onReplayDone
+  onReplayDone,
+  remotePresence = null,
+  onPresenceUpdate
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -57,6 +61,9 @@ export function GameCanvas({
   const cuePlacementRaf = useRef<number | null>(null);
   const pendingCuePlacementRef = useRef<{ x: number; y: number } | null>(null);
   const aimingPointerRef = useRef<number | null>(null);
+  const presenceRafRef = useRef<number | null>(null);
+  const presencePendingRef = useRef<{ active: boolean; angle: number; power: number } | null>(null);
+  const lastPresenceSentAtRef = useRef(0);
   const [replayProgress, setReplayProgress] = useState(0);
   const displayPower = shotPower ?? aim.power;
   const activeCue = cueStyle ?? {
@@ -100,6 +107,7 @@ export function GameCanvas({
     return () => {
       if (aimSyncRaf.current !== null) window.cancelAnimationFrame(aimSyncRaf.current);
       if (cuePlacementRaf.current !== null) window.cancelAnimationFrame(cuePlacementRaf.current);
+      if (presenceRafRef.current !== null) window.cancelAnimationFrame(presenceRafRef.current);
     };
   }, []);
 
@@ -185,6 +193,8 @@ export function GameCanvas({
       const ox = (width - state.table.width * scale) / 2;
       const oy = (height - state.table.height * scale) / 2;
       const liveAim = aimRef.current;
+      const remoteAim =
+        remotePresence && now - remotePresence.t < 900 ? remotePresence : null;
 
       ctx.clearRect(0, 0, width, height);
 
@@ -387,6 +397,33 @@ export function GameCanvas({
         }
       }
 
+      if (cue && !isMyTurn && remoteAim?.active && !state.shotInProgress) {
+        ctx.strokeStyle = "rgba(110,215,255,0.56)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([7, 7]);
+        ctx.beginPath();
+        ctx.moveTo(cue.pos.x, cue.pos.y);
+        ctx.lineTo(
+          cue.pos.x + Math.cos(remoteAim.angle) * 230,
+          cue.pos.y + Math.sin(remoteAim.angle) * 230
+        );
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.strokeStyle = "rgba(230,247,255,0.72)";
+        ctx.lineWidth = 4.8;
+        ctx.beginPath();
+        ctx.moveTo(
+          cue.pos.x - Math.cos(remoteAim.angle) * 22,
+          cue.pos.y - Math.sin(remoteAim.angle) * 22
+        );
+        ctx.lineTo(
+          cue.pos.x - Math.cos(remoteAim.angle) * (178 + remoteAim.power * 48),
+          cue.pos.y - Math.sin(remoteAim.angle) * (178 + remoteAim.power * 48)
+        );
+        ctx.stroke();
+      }
+
       const renderBalls = interpolatedReplayBalls ?? state.balls;
       for (const ball of renderBalls) {
         if (ball.pocketed) continue;
@@ -493,7 +530,16 @@ export function GameCanvas({
 
     raf = window.requestAnimationFrame(draw);
     return () => window.cancelAnimationFrame(raf);
-  }, [state, isMyTurn, assistStrength, interpolatedReplayBalls, displayPower, activeCue, activeTable]);
+  }, [
+    state,
+    isMyTurn,
+    assistStrength,
+    interpolatedReplayBalls,
+    displayPower,
+    activeCue,
+    activeTable,
+    remotePresence
+  ]);
 
   const pointerToTable = (e: PointerEvent<HTMLCanvasElement>): { x: number; y: number } | null => {
     if (!state) return null;
@@ -595,10 +641,32 @@ export function GameCanvas({
 
   const syncAim = (next: AimState) => {
     aimRef.current = next;
+    queuePresence(next);
     if (aimSyncRaf.current !== null) return;
     aimSyncRaf.current = window.requestAnimationFrame(() => {
       setAim(aimRef.current);
       aimSyncRaf.current = null;
+    });
+  };
+
+  const queuePresence = (next: AimState) => {
+    if (!onPresenceUpdate || !state || !isMyTurn || state.ballInHand) return;
+    presencePendingRef.current = {
+      active: next.active,
+      angle: next.angle,
+      power: displayPower
+    };
+    if (presenceRafRef.current !== null) return;
+    presenceRafRef.current = window.requestAnimationFrame((ts) => {
+      presenceRafRef.current = null;
+      const pending = presencePendingRef.current;
+      if (!pending) return;
+      if (ts - lastPresenceSentAtRef.current < 32) {
+        queuePresence(next);
+        return;
+      }
+      lastPresenceSentAtRef.current = ts;
+      onPresenceUpdate(pending);
     });
   };
 

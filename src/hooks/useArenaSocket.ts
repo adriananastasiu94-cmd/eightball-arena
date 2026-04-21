@@ -5,6 +5,7 @@ import { io, Socket } from "socket.io-client";
 import type { BallState, MatchState, ShotInput } from "@/game/types";
 
 type QueueStatus = { inQueue: boolean; eta: number | null };
+type PresencePayload = { userId: string; active: boolean; angle: number; power: number; t: number };
 
 export function useArenaSocket(enabled: boolean) {
   const [queue, setQueue] = useState<QueueStatus>({ inQueue: false, eta: null });
@@ -15,6 +16,7 @@ export function useArenaSocket(enabled: boolean) {
   const [isShotPending, setIsShotPending] = useState(false);
   const [shotError, setShotError] = useState<string | null>(null);
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
+  const [presenceByUser, setPresenceByUser] = useState<Record<string, PresencePayload>>({});
   const socketRef = useRef<Socket | null>(null);
   const lockTimerRef = useRef<number | null>(null);
   const shotPendingRef = useRef(false);
@@ -26,7 +28,8 @@ export function useArenaSocket(enabled: boolean) {
 
     const socket = io({
       path: process.env.NEXT_PUBLIC_SOCKET_PATH || "/socket.io",
-      withCredentials: true
+      withCredentials: true,
+      transports: ["websocket"]
     });
 
     socket.on("queue:status", setQueue);
@@ -34,6 +37,7 @@ export function useArenaSocket(enabled: boolean) {
       setMatchFound(true);
       setResult(null);
       setShotError(null);
+      setPresenceByUser({});
       lastReplayShotRef.current = null;
       lastCuePlaceRef.current = null;
     });
@@ -64,15 +68,28 @@ export function useArenaSocket(enabled: boolean) {
         frames: payload.frames,
         fps: payload.fps
       });
+      setPresenceByUser((prev) => {
+        const next: Record<string, PresencePayload> = {};
+        for (const [userId, presence] of Object.entries(prev)) {
+          next[userId] = { ...presence, active: false, t: Date.now() };
+        }
+        return next;
+      });
       shotPendingRef.current = true;
       setIsShotPending(true);
       if (lockTimerRef.current !== null) window.clearTimeout(lockTimerRef.current);
       lockTimerRef.current = window.setTimeout(() => {
         shotPendingRef.current = false;
         setIsShotPending(false);
-      }, durationMs + 80);
+      }, durationMs + 24);
     });
     socket.on("match:ended", (payload) => setResult(payload));
+    socket.on("match:presence", (payload: PresencePayload) => {
+      setPresenceByUser((prev) => ({
+        ...prev,
+        [payload.userId]: payload
+      }));
+    });
     socket.on("match:shot-rejected", (payload) => {
       setShotError(payload.reason);
       shotPendingRef.current = false;
@@ -106,6 +123,7 @@ export function useArenaSocket(enabled: boolean) {
       replay,
       shotError,
       serverOffsetMs,
+      presenceByUser,
       shotLocked: isShotPending || Boolean(state?.shotInProgress),
       joinQueue: (stake?: number) => socketRef.current?.emit("queue:join", { stake }),
       leaveQueue: () => socketRef.current?.emit("queue:leave"),
@@ -128,11 +146,23 @@ export function useArenaSocket(enabled: boolean) {
         lastCuePlaceRef.current = { x, y, t: now };
         socketRef.current?.emit("match:ball-in-hand", { x, y });
       },
+      sendPresence: (payload: { active: boolean; angle: number; power: number }) =>
+        socketRef.current?.emit("match:presence", payload),
       rematch: () => socketRef.current?.emit("match:rematch"),
       clearReplay: () => setReplay(null),
       clearShotError: () => setShotError(null)
     }),
-    [queue, state, matchFound, result, replay, shotError, isShotPending, serverOffsetMs]
+    [
+      queue,
+      state,
+      matchFound,
+      result,
+      replay,
+      shotError,
+      isShotPending,
+      serverOffsetMs,
+      presenceByUser
+    ]
   );
 
   return api;

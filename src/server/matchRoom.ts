@@ -139,6 +139,23 @@ export class MatchRoom {
     this.broadcastState();
   }
 
+  handlePresence(
+    userId: string,
+    payload: { active: boolean; angle: number; power: number }
+  ): void {
+    if (!this.socketsByUser.has(userId)) return;
+    if (!Number.isFinite(payload.angle) || !Number.isFinite(payload.power)) return;
+    const power = Math.max(0.08, Math.min(1, payload.power));
+
+    this.io.to(this.id).emit("match:presence", {
+      userId,
+      active: Boolean(payload.active),
+      angle: payload.angle,
+      power,
+      t: Date.now()
+    });
+  }
+
   handleShot(userId: string, shot: ShotInput): void {
     if (this.state.phase === "round_end") return;
     if (this.state.shotInProgress) {
@@ -166,8 +183,9 @@ export class MatchRoom {
     // Authoritative flow: validate -> simulate -> adjudicate rules -> broadcast one true state.
     const ballsAfterImpulse = applyCueImpulse(this.state.balls, shot.angle, shot.power, shot.spin);
     const sim = simulateShot(this.state.table, ballsAfterImpulse);
-    const replayFps = 30;
-    const sampleStep = 4; // 120 Hz sim -> 30 FPS replay stream
+    const maxReplayFrames = 220;
+    const sampleStep = Math.max(5, Math.ceil(sim.frames.length / maxReplayFrames));
+    const replayFps = Math.max(12, Math.round(120 / sampleStep));
     const replayFrames = sim.frames
       .filter((_, idx) => idx % sampleStep === 0 || idx === sim.frames.length - 1)
       .map((frame) => frame.map((b) => ({ ...b, pos: { ...b.pos }, vel: { ...b.vel } })));

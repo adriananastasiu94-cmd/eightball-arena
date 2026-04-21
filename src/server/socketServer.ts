@@ -8,6 +8,7 @@ import { MemoryRateLimiter } from "./rateLimit";
 export function createSocketServer(httpServer: HttpServer) {
   const io = new Server(httpServer, {
     path: process.env.NEXT_PUBLIC_SOCKET_PATH || "/socket.io",
+    transports: ["websocket", "polling"],
     cors: {
       origin: true,
       credentials: true
@@ -82,6 +83,20 @@ export function createSocketServer(httpServer: HttpServer) {
       const room = matchmaker.findRoomByUser(user.userId);
       if (!room) return;
       room.handleBallInHand(user.userId, x, y);
+    });
+
+    socket.on("match:presence", (payload) => {
+      const room = matchmaker.findRoomByUser(user.userId);
+      if (!room) return;
+      if (
+        !payload ||
+        typeof payload.active !== "boolean" ||
+        typeof payload.angle !== "number" ||
+        typeof payload.power !== "number"
+      ) {
+        return;
+      }
+      room.handlePresence(user.userId, payload);
     });
 
     socket.on("match:rematch", () => {
