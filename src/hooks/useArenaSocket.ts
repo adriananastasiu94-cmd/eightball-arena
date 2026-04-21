@@ -14,6 +14,7 @@ export function useArenaSocket(enabled: boolean) {
   const [replay, setReplay] = useState<{ id: string; frames: BallState[][]; fps: number } | null>(null);
   const [isShotPending, setIsShotPending] = useState(false);
   const [shotError, setShotError] = useState<string | null>(null);
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
   const socketRef = useRef<Socket | null>(null);
   const lockTimerRef = useRef<number | null>(null);
   const shotPendingRef = useRef(false);
@@ -36,8 +37,12 @@ export function useArenaSocket(enabled: boolean) {
       lastReplayShotRef.current = null;
       lastCuePlaceRef.current = null;
     });
-    socket.on("match:state", ({ state: nextState }) => {
+    socket.on("match:state", ({ state: nextState, serverTime }) => {
       setState(nextState);
+      if (typeof serverTime === "number") {
+        const rawOffset = serverTime - Date.now();
+        setServerOffsetMs((prev) => prev * 0.75 + rawOffset * 0.25);
+      }
       if (!nextState.shotInProgress) {
         shotPendingRef.current = false;
         setIsShotPending(false);
@@ -100,6 +105,7 @@ export function useArenaSocket(enabled: boolean) {
       result,
       replay,
       shotError,
+      serverOffsetMs,
       shotLocked: isShotPending || Boolean(state?.shotInProgress),
       joinQueue: (stake?: number) => socketRef.current?.emit("queue:join", { stake }),
       leaveQueue: () => socketRef.current?.emit("queue:leave"),
@@ -126,7 +132,7 @@ export function useArenaSocket(enabled: boolean) {
       clearReplay: () => setReplay(null),
       clearShotError: () => setShotError(null)
     }),
-    [queue, state, matchFound, result, replay, shotError, isShotPending]
+    [queue, state, matchFound, result, replay, shotError, isShotPending, serverOffsetMs]
   );
 
   return api;

@@ -709,11 +709,16 @@ function predictFirstCollision(
   const toTarget = { x: best.ball.pos.x - cueImpact.x, y: best.ball.pos.y - cueImpact.y };
   const l = Math.hypot(toTarget.x, toTarget.y) || 1;
   const n = { x: toTarget.x / l, y: toTarget.y / l };
-  const sep = -((dir.x * n.x) + (dir.y * n.y));
-  const impulse = sep > 0 ? ((1 + PHYSICS.restitutionBall) * sep) / 2 : 0;
+  const incomingNormal = dir.x * n.x + dir.y * n.y;
+  if (incomingNormal <= 1e-4) return null;
 
-  let cueOut = { x: dir.x - n.x * impulse, y: dir.y - n.y * impulse };
-  let targetOut = { x: n.x * impulse, y: n.y * impulse };
+  const e = PHYSICS.restitutionBall;
+  const cueNormalAfter = incomingNormal * (1 - e) * 0.5;
+  const targetNormalAfter = incomingNormal * (1 + e) * 0.5;
+  const cueTangent = { x: dir.x - n.x * incomingNormal, y: dir.y - n.y * incomingNormal };
+
+  let cueOut = { x: cueTangent.x + n.x * cueNormalAfter, y: cueTangent.y + n.y * cueNormalAfter };
+  let targetOut = { x: n.x * targetNormalAfter, y: n.y * targetNormalAfter };
   const tangent = { x: -n.y, y: n.x };
   const relTan = ((targetOut.x - cueOut.x) * tangent.x) + ((targetOut.y - cueOut.y) * tangent.y);
   const tanImpulse = relTan * PHYSICS.collisionTangentialFriction * 0.5;

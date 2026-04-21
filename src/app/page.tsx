@@ -279,8 +279,9 @@ export default function HomePage() {
     [currentState]
   );
   const shotClockMs = 30000;
+  const syncedNowMs = mode === "online" ? nowMs + (socket.serverOffsetMs ?? 0) : nowMs;
   const activeDeadline = currentState?.turnDeadlineMs ?? null;
-  const activeRemainingMs = activeDeadline ? Math.max(0, activeDeadline - nowMs) : 0;
+  const activeRemainingMs = activeDeadline ? Math.max(0, activeDeadline - syncedNowMs) : 0;
   const xp = me?.stats?.xp ?? 0;
   const level = Math.max(1, me?.stats?.level ?? Math.floor(xp / 1000) + 1);
   const currentLevelStart = (level - 1) * 1000;
@@ -423,7 +424,9 @@ export default function HomePage() {
               timeouts={currentState.timeoutStrikes[0]}
               isActive={0 === currentState.currentTurn && !currentState.shotInProgress && currentState.phase !== "round_end"}
               arcDeg={Math.max(0, Math.min(360, (activeRemainingMs / shotClockMs) * 360))}
-              remainingSec={Math.max(0, Math.ceil(activeRemainingMs / 1000))}
+              remainingSec={Math.min(30, Math.max(0, Math.ceil(activeRemainingMs / 1000)))}
+              assignedLabel={currentState.players[0].group ? `${groupLabel(currentState.players[0].group)} Left` : "Open Table"}
+              assignedNumbers={assignedGroupNumbers(currentState, 0)}
             />
           )}
         </aside>
@@ -449,7 +452,9 @@ export default function HomePage() {
                   timeouts={currentState.timeoutStrikes[0]}
                   isActive={0 === currentState.currentTurn && !currentState.shotInProgress && currentState.phase !== "round_end"}
                   arcDeg={Math.max(0, Math.min(360, (activeRemainingMs / shotClockMs) * 360))}
-                  remainingSec={Math.max(0, Math.ceil(activeRemainingMs / 1000))}
+                  remainingSec={Math.min(30, Math.max(0, Math.ceil(activeRemainingMs / 1000)))}
+                  assignedLabel={currentState.players[0].group ? `${groupLabel(currentState.players[0].group)} Left` : "Open Table"}
+                  assignedNumbers={assignedGroupNumbers(currentState, 0)}
                 />
                 <PlayerProfileCard
                   player={currentState.players[1]}
@@ -458,27 +463,10 @@ export default function HomePage() {
                   timeouts={currentState.timeoutStrikes[1]}
                   isActive={1 === currentState.currentTurn && !currentState.shotInProgress && currentState.phase !== "round_end"}
                   arcDeg={Math.max(0, Math.min(360, (activeRemainingMs / shotClockMs) * 360))}
-                  remainingSec={Math.max(0, Math.ceil(activeRemainingMs / 1000))}
+                  remainingSec={Math.min(30, Math.max(0, Math.ceil(activeRemainingMs / 1000)))}
+                  assignedLabel={currentState.players[1].group ? `${groupLabel(currentState.players[1].group)} Left` : "Open Table"}
+                  assignedNumbers={assignedGroupNumbers(currentState, 1)}
                 />
-              </div>
-
-              <div className="space-y-2">
-                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                  <div className="mb-1 text-xs text-white/75">Solids Left</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[1, 2, 3, 4, 5, 6, 7].map((n) =>
-                      currentState.balls.some((b) => b.number === n && !b.pocketed) ? <BallPip key={`solid-${n}`} number={n} /> : null
-                    )}
-                  </div>
-                </div>
-                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                  <div className="mb-1 text-xs text-white/75">Stripes Left</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[9, 10, 11, 12, 13, 14, 15].map((n) =>
-                      currentState.balls.some((b) => b.number === n && !b.pocketed) ? <BallPip key={`stripe-${n}`} number={n} /> : null
-                    )}
-                  </div>
-                </div>
               </div>
             </div>
           )}
@@ -625,7 +613,9 @@ export default function HomePage() {
               timeouts={currentState.timeoutStrikes[1]}
               isActive={1 === currentState.currentTurn && !currentState.shotInProgress && currentState.phase !== "round_end"}
               arcDeg={Math.max(0, Math.min(360, (activeRemainingMs / shotClockMs) * 360))}
-              remainingSec={Math.max(0, Math.ceil(activeRemainingMs / 1000))}
+              remainingSec={Math.min(30, Math.max(0, Math.ceil(activeRemainingMs / 1000)))}
+              assignedLabel={currentState.players[1].group ? `${groupLabel(currentState.players[1].group)} Left` : "Open Table"}
+              assignedNumbers={assignedGroupNumbers(currentState, 1)}
             />
           )}
         </aside>
@@ -666,7 +656,9 @@ function PlayerProfileCard({
   timeouts,
   isActive,
   arcDeg,
-  remainingSec
+  remainingSec,
+  assignedLabel,
+  assignedNumbers
 }: {
   player: PlayerState;
   group: string;
@@ -675,6 +667,8 @@ function PlayerProfileCard({
   isActive: boolean;
   arcDeg: number;
   remainingSec: number;
+  assignedLabel: string;
+  assignedNumbers: number[];
 }) {
   return (
     <div
@@ -704,6 +698,18 @@ function PlayerProfileCard({
           <span>Region: {player.profile?.region ?? "Global"}</span>
           <span>Timeouts: {timeouts}/3</span>
         </div>
+        <div className="mt-2 rounded-md border border-white/10 bg-black/20 px-2 py-1.5">
+          <div className="mb-1 text-[11px] text-white/70">{assignedLabel}</div>
+          {assignedNumbers.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {assignedNumbers.map((n) => (
+                <BallPip key={`profile-${player.userId}-${n}`} number={n} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-[11px] text-white/45">No assigned group yet</div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -723,6 +729,13 @@ function canShootEight(state: MatchState, playerIndex: number): boolean {
 function ratioText(wins: number, losses: number): string {
   const denom = Math.max(1, losses);
   return (wins / denom).toFixed(2);
+}
+
+function assignedGroupNumbers(state: MatchState, playerIndex: number): number[] {
+  const group = state.players[playerIndex]?.group;
+  if (!group) return [];
+  const range = group === "solids" ? [1, 2, 3, 4, 5, 6, 7] : [9, 10, 11, 12, 13, 14, 15];
+  return range.filter((n) => state.balls.some((b) => b.number === n && !b.pocketed));
 }
 
 function BallPip({ number }: { number: number }) {

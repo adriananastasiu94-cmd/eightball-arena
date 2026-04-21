@@ -36,7 +36,7 @@ export class MatchRoom {
   private rematchVotes = new Set<string>();
   private disconnectTimers = new Map<string, NodeJS.Timeout>();
   private shotUnlockTimer: NodeJS.Timeout | null = null;
-  private shotClockTicker: NodeJS.Timeout | null = null;
+  private shotClockTimer: NodeJS.Timeout | null = null;
   private readonly shotClockMs = 30000;
   private lastCueBroadcastAt = 0;
   private lastCueBroadcastPos: { x: number; y: number } | null = null;
@@ -69,8 +69,7 @@ export class MatchRoom {
       }
     ];
     this.state = createMatchState(this.id, statePlayers);
-    this.state.turnDeadlineMs = Date.now() + this.shotClockMs;
-    this.shotClockTicker = setInterval(() => this.checkTurnTimeout(), 250);
+    this.resetTurnDeadline();
   }
 
   attachSockets(): void {
@@ -159,6 +158,7 @@ export class MatchRoom {
 
     this.state.shotInProgress = true;
     this.state.turnDeadlineMs = null;
+    this.clearShotClockTimer();
     this.broadcastState();
 
     // Authoritative flow: validate -> simulate -> adjudicate rules -> broadcast one true state.
@@ -210,10 +210,7 @@ export class MatchRoom {
   }
 
   private async finish(winnerUserId: string | null, reason: string) {
-    if (this.shotClockTicker) {
-      clearInterval(this.shotClockTicker);
-      this.shotClockTicker = null;
-    }
+    this.clearShotClockTimer();
     if (this.shotUnlockTimer) {
       clearTimeout(this.shotUnlockTimer);
       this.shotUnlockTimer = null;
@@ -302,14 +299,33 @@ export class MatchRoom {
 
   private resetTurnDeadline(): void {
     this.state.turnDeadlineMs = Date.now() + this.shotClockMs;
+    this.armShotClockTimer();
   }
 
-  private checkTurnTimeout(): void {
+  private clearShotClockTimer(): void {
+    if (!this.shotClockTimer) return;
+    clearTimeout(this.shotClockTimer);
+    this.shotClockTimer = null;
+  }
+
+  private armShotClockTimer(): void {
+    this.clearShotClockTimer();
+    const deadline = this.state.turnDeadlineMs;
+    if (!deadline) return;
+    const delay = Math.max(20, deadline - Date.now());
+    this.shotClockTimer = setTimeout(() => this.handleTurnTimeout(), delay);
+  }
+
+  private handleTurnTimeout(): void {
     if (this.state.phase === "round_end") return;
     if (this.state.shotInProgress) return;
     const deadline = this.state.turnDeadlineMs;
     if (!deadline) return;
-    if (Date.now() < deadline) return;
+    const remaining = deadline - Date.now();
+    if (remaining > 20) {
+      this.armShotClockTimer();
+      return;
+    }
 
     const offender = this.state.currentTurn;
     const strikes = [...this.state.timeoutStrikes] as [number, number];
