@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { AuthPanel } from "@/components/AuthPanel";
 import { GameCanvas } from "@/components/GameCanvas";
 import { CustomizationMenu } from "@/components/CustomizationMenu";
@@ -22,6 +22,7 @@ type Me = {
     wins: number;
     losses: number;
     matchesPlayed: number;
+    winStreak?: number;
     rating: number;
     level: number;
     xp: number;
@@ -156,6 +157,8 @@ export default function HomePage() {
   const [tournamentRun, setTournamentRun] = useState<TournamentRun | null>(null);
   const [menuNotice, setMenuNotice] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [winnerBalancePreview, setWinnerBalancePreview] = useState<number | null>(null);
+  const handledResultMatchIdRef = useRef<string | null>(null);
   const socket = useArenaSocket(Boolean(me) && mode === "online");
   const myLiveUserId = socket.selfUserId ?? me?.id ?? null;
   const opponentPresence = useMemo(() => {
@@ -228,6 +231,7 @@ export default function HomePage() {
           wins: me.stats?.wins ?? 0,
           losses: me.stats?.losses ?? 0,
           matchesPlayed: me.stats?.matchesPlayed ?? 0,
+          winStreak: me.stats?.winStreak ?? 0,
           level: me.stats?.level ?? Math.max(1, Math.floor((me.stats?.xp ?? 0) / 1000) + 1),
           region: "Global"
         }
@@ -242,6 +246,7 @@ export default function HomePage() {
           wins: 0,
           losses: 0,
           matchesPlayed: 0,
+          winStreak: 0,
           level:
             sandboxSession.difficulty === "pro"
               ? 6
@@ -536,6 +541,65 @@ export default function HomePage() {
   }, [mode, localState, localReplay, sandboxSession]);
 
   const currentState = mode === "online" ? socket.state : localState;
+  const onlineResult = mode === "online" ? socket.result : null;
+  const resolvedMyUserId = myLiveUserId ?? me?.id ?? null;
+
+  useEffect(() => {
+    if (!onlineResult) {
+      handledResultMatchIdRef.current = null;
+      setWinnerBalancePreview(null);
+      return;
+    }
+    if (handledResultMatchIdRef.current === onlineResult.matchId) return;
+    handledResultMatchIdRef.current = onlineResult.matchId;
+
+    const iWon = Boolean(resolvedMyUserId && onlineResult.winnerUserId === resolvedMyUserId);
+    const startCoins = me?.stats?.coins ?? 0;
+    const prizeCoins = Math.max(0, onlineResult.potCoins ?? 0);
+    if (!iWon || prizeCoins <= 0) {
+      setWinnerBalancePreview(null);
+      return;
+    }
+
+    const targetCoins = startCoins + prizeCoins;
+    const durationMs = 1250;
+    const startedAt = performance.now();
+    let raf = 0;
+    const animate = (ts: number) => {
+      const p = Math.max(0, Math.min(1, (ts - startedAt) / durationMs));
+      const eased = 1 - Math.pow(1 - p, 3);
+      setWinnerBalancePreview(Math.round(startCoins + (targetCoins - startCoins) * eased));
+      if (p < 1) {
+        raf = window.requestAnimationFrame(animate);
+      }
+    };
+    raf = window.requestAnimationFrame(animate);
+    return () => {
+      window.cancelAnimationFrame(raf);
+    };
+  }, [onlineResult, me?.stats?.coins, resolvedMyUserId]);
+
+  useEffect(() => {
+    if (!onlineResult) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await api<{ user: Me }>("/api/profile");
+          if (cancelled) return;
+          setMe(res.user);
+          window.localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(res.user));
+        } catch {
+          // Keep current cached profile on transient sync failures.
+        }
+      })();
+    }, 1650);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [onlineResult]);
 
   const onShoot = (shot: ShotInput) => {
     if (!currentState || !me) return;
@@ -751,6 +815,7 @@ export default function HomePage() {
                 <span className="rounded-md bg-black/30 px-2 py-1">Level {level}</span>
                 <span className="rounded-md bg-black/30 px-2 py-1">Coins {(me.stats?.coins ?? 0).toLocaleString()}</span>
                 <span className="rounded-md bg-black/30 px-2 py-1">Cash {(me.stats?.cash ?? 0).toLocaleString()}</span>
+                <span className="rounded-md bg-black/30 px-2 py-1">Streak {(me.stats?.winStreak ?? 0)}W</span>
                 <button
                   onClick={async () => {
                     await api<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
@@ -982,6 +1047,7 @@ export default function HomePage() {
           <span className="rounded bg-amber-400/20 px-2 py-1 text-amber-200">Coins: {(me.stats?.coins ?? 0).toLocaleString()}</span>
           <span className="rounded bg-emerald-400/20 px-2 py-1 text-emerald-200">Cash: {(me.stats?.cash ?? 0).toLocaleString()}</span>
           <span className="rounded bg-cyan-400/20 px-2 py-1 text-cyan-200">XP: {xp.toLocaleString()}</span>
+          <span className="rounded bg-rose-400/20 px-2 py-1 text-rose-200">Streak: {(me.stats?.winStreak ?? 0)}W</span>
           <span className="rounded bg-indigo-400/20 px-2 py-1 text-indigo-200">Level {level}</span>
           <div className="h-2 min-w-[150px] flex-1 overflow-hidden rounded-full bg-white/10 md:min-w-[220px]">
             <div className="h-full bg-gradient-to-r from-cyan-400 to-indigo-500" style={{ width: `${Math.round(xpProgress * 100)}%` }} />
@@ -1169,13 +1235,6 @@ export default function HomePage() {
           </div>
         )}
 
-        {socket.result && (
-          <div className="mt-4 rounded-xl border border-white/10 bg-black/30 p-3 text-white">
-            <div className="font-semibold">{socket.result.winnerUserId === (myLiveUserId ?? me.id) ? "Victory" : "Defeat"}</div>
-            <div className="text-sm text-white/70">Reason: {socket.result.reason}</div>
-          </div>
-        )}
-
           <div className="mt-4 rounded-xl border border-white/10 bg-black/25 p-3">
             <div className="mb-2 text-sm font-semibold text-white">Pocketed Balls</div>
             <div className="flex min-h-10 flex-wrap gap-2">
@@ -1204,6 +1263,18 @@ export default function HomePage() {
           )}
         </aside>
       </div>
+
+      {onlineResult && currentState && resolvedMyUserId && (
+        <MatchResultOverlay
+          result={onlineResult}
+          players={currentState.players}
+          myUserId={resolvedMyUserId}
+          myCoins={me.stats?.coins ?? 0}
+          winnerBalancePreview={winnerBalancePreview}
+          onRematch={socket.rematch}
+          onMainMenu={openMainMenu}
+        />
+      )}
 
       <CustomizationMenu
         open={lockerOpen}
@@ -1557,6 +1628,141 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function MatchResultOverlay({
+  result,
+  players,
+  myUserId,
+  myCoins,
+  winnerBalancePreview,
+  onRematch,
+  onMainMenu
+}: {
+  result: { matchId: string; winnerUserId: string | null; reason: string; stakeCoins: number; potCoins: number };
+  players: [PlayerState, PlayerState];
+  myUserId: string;
+  myCoins: number;
+  winnerBalancePreview: number | null;
+  onRematch: () => void;
+  onMainMenu: () => void;
+}) {
+  const winner = result.winnerUserId ? players.find((p) => p.userId === result.winnerUserId) ?? null : null;
+  const loser = winner ? players.find((p) => p.userId !== winner.userId) ?? null : null;
+  const podiumPlayers = winner ? [winner, loser].filter((p): p is PlayerState => Boolean(p)) : [...players];
+  const didIWin = Boolean(winner && winner.userId === myUserId);
+  const headline = winner ? (didIWin ? "You Won" : "Match Lost") : "Draw";
+
+  const winnerBalanceText = (() => {
+    if (!winner) return "-";
+    if (winner.userId === myUserId) {
+      return (winnerBalancePreview ?? myCoins).toLocaleString();
+    }
+    return `+${Math.max(0, result.potCoins).toLocaleString()}`;
+  })();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#030912]/78 px-3 backdrop-blur-[3px]">
+      <div className="w-full max-w-3xl rounded-2xl border border-[#e2bb63]/45 bg-gradient-to-b from-[#0e2032] via-[#10253a] to-[#091725] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.55)] md:p-5">
+        <div className="text-center">
+          <h2 className="text-2xl font-black tracking-wide text-[#ffe190]">{headline}</h2>
+          <p className="mt-1 text-sm text-white/75">
+            {winner ? `Winner takes ${result.potCoins.toLocaleString()} coins` : "No winner for this round"}
+          </p>
+          <p className="mt-1 text-xs uppercase tracking-wider text-white/50">Reason: {result.reason}</p>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          {podiumPlayers.map((player) => {
+            const isWinner = Boolean(winner && player.userId === winner.userId);
+            const avatarInitial = (player.username || "?").slice(0, 1).toUpperCase();
+            return (
+              <div
+                key={`result-${player.userId}`}
+                className={`relative overflow-hidden rounded-xl border p-3 ${
+                  isWinner ? "border-amber-300/70 bg-amber-300/10" : "border-white/20 bg-white/5"
+                }`}
+              >
+                {isWinner && (
+                  <div className="absolute right-2 top-2 rounded-full bg-amber-300/20 p-1.5 text-amber-200">
+                    <CrownIcon />
+                  </div>
+                )}
+                <div className="flex items-center gap-3">
+                  <div className="h-14 w-14 overflow-hidden rounded-full border border-white/30 bg-white/10">
+                    {player.avatarUrl ? (
+                      <div
+                        aria-label={player.username}
+                        className="h-full w-full bg-cover bg-center bg-no-repeat"
+                        style={{ backgroundImage: `url(${player.avatarUrl})` }}
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-lg font-bold text-white/90">
+                        {avatarInitial}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-base font-bold text-white">{player.username}</div>
+                    <div className={`text-xs ${isWinner ? "text-amber-200/90" : "text-white/70"}`}>
+                      {isWinner ? "Winner" : "Runner-up"}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-3 text-[11px] uppercase tracking-wide text-white/60">Balance</div>
+                <div className="relative mt-1 rounded-lg border border-white/20 bg-black/30 px-3 py-2 text-sm font-semibold text-white">
+                  {isWinner ? winnerBalanceText : player.userId === myUserId ? myCoins.toLocaleString() : "-"}
+                  {isWinner && (
+                    <div className="arena-coin-stream" aria-hidden>
+                      {Array.from({ length: 9 }).map((_, idx) => (
+                        <span
+                          key={`coin-${result.matchId}-${idx}`}
+                          className="arena-coin-token"
+                          style={
+                            {
+                              "--coin-left": `${14 + idx * 8}%`,
+                              "--coin-delay": `${idx * 100}ms`
+                            } as Record<string, string>
+                          }
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+          <button
+            onClick={onRematch}
+            className="rounded-xl bg-gradient-to-b from-[#52cf2e] to-[#2d8e22] px-5 py-2 text-sm font-extrabold text-white"
+          >
+            Rematch
+          </button>
+          <button
+            onClick={onMainMenu}
+            className="rounded-xl bg-white/10 px-5 py-2 text-sm font-semibold text-white"
+          >
+            Main Menu
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CrownIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M4 18L6.4 7.5L12 12L17.6 7.5L20 18H4Z" fill="currentColor" />
+      <circle cx="6.4" cy="7.3" r="1.6" fill="currentColor" />
+      <circle cx="12" cy="5.2" r="1.6" fill="currentColor" />
+      <circle cx="17.6" cy="7.3" r="1.6" fill="currentColor" />
+      <rect x="4" y="18" width="16" height="2" rx="1" fill="currentColor" />
+    </svg>
+  );
+}
+
 function PlayerProfileCard({
   player,
   group,
@@ -1616,6 +1822,7 @@ function PlayerProfileCard({
         <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-white/80">
           <span>W/L: {player.profile?.wins ?? 0}/{player.profile?.losses ?? 0}</span>
           <span>Ratio: {ratioText(player.profile?.wins ?? 0, player.profile?.losses ?? 0)}</span>
+          <span>Streak: {player.profile?.winStreak ?? 0}W</span>
           <span>Level: {player.profile?.level ?? 1}</span>
           <span>Games: {player.profile?.matchesPlayed ?? 0}</span>
           <span>Region: {player.profile?.region ?? "Global"}</span>

@@ -30,6 +30,12 @@ export type ServerToClientEvents = {
   }) => void;
   "match:presence": (payload: { userId: string; active: boolean; angle: number; power: number; t: number }) => void;
   "match:shot-rejected": (payload: { reason: string }) => void;
-  "match:ended": (payload: { winnerUserId: string | null; reason: string }) => void;
+  "match:ended": (payload: {
+    matchId: string;
+    winnerUserId: string | null;
+    reason: string;
+    stakeCoins: number;
+    potCoins: number;
+  }) => void;
   "session:error": (payload: { code: string; message: string }) => void;
 };

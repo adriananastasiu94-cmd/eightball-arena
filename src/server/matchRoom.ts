@@ -46,6 +46,26 @@ function canPlaceCueAt(state: MatchState, x: number, y: number): boolean {
   });
 }
 
+function computeWinStreakMap(
+  rows: Array<{ userId: string; isWinner: boolean; match: { startedAt: Date } }>,
+  targetUserIds: string[]
+): Map<string, number> {
+  const streakByUser = new Map<string, number>();
+  const closed = new Set<string>();
+  const targets = new Set(targetUserIds);
+
+  for (const row of rows) {
+    if (!targets.has(row.userId) || closed.has(row.userId)) continue;
+    if (row.isWinner) {
+      streakByUser.set(row.userId, (streakByUser.get(row.userId) ?? 0) + 1);
+    } else {
+      closed.add(row.userId);
+    }
+  }
+
+  return streakByUser;
+}
+
 export class MatchRoom {
   readonly id: string;
   readonly socketsByUser = new Map<string, string>();
@@ -387,7 +407,13 @@ export class MatchRoom {
     this.state.shotInProgress = false;
     this.state.phase = "round_end";
     this.broadcastState();
-    this.io.to(this.id).emit("match:ended", { winnerUserId, reason });
+    this.io.to(this.id).emit("match:ended", {
+      matchId: this.id,
+      winnerUserId,
+      reason,
+      stakeCoins: this.stakeCoins,
+      potCoins: this.potCoins
+    });
 
     try {
       const users = await prisma.user.findMany({
@@ -561,6 +587,21 @@ export class MatchRoom {
     });
     if (users.length === 0) return;
 
+    const arenaUserIds = users.map((u) => u.id);
+    const streakRows =
+      arenaUserIds.length > 0
+        ? await prisma.matchParticipant.findMany({
+            where: { userId: { in: arenaUserIds } },
+            select: {
+              userId: true,
+              isWinner: true,
+              match: { select: { startedAt: true } }
+            },
+            orderBy: { match: { startedAt: "desc" } },
+            take: 80
+          })
+        : [];
+    const streakByArenaUserId = computeWinStreakMap(streakRows, arenaUserIds);
     const byChatId = new Map(users.map((u) => [u.chatUserId, u]));
     this.state.players = this.state.players.map((p) => {
       const user = byChatId.get(p.userId);
@@ -571,6 +612,7 @@ export class MatchRoom {
           wins: user?.playerStats?.wins ?? 0,
           losses: user?.playerStats?.losses ?? 0,
           matchesPlayed: user?.playerStats?.matchesPlayed ?? 0,
+          winStreak: user ? streakByArenaUserId.get(user.id) ?? 0 : 0,
           level: user?.playerStats?.level ?? 1,
           region: "Global"
         }

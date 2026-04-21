@@ -24,6 +24,7 @@ export type PlayerState = {
     wins: number;
     losses: number;
     matchesPlayed: number;
+    winStreak?: number;
     level: number;
     region: string;
   };

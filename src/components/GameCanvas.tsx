@@ -764,17 +764,17 @@ function drawStripeBand(ctx: CanvasRenderingContext2D, ball: BallState, pose: Ba
 
 function drawNumberSpots(ctx: CanvasRenderingContext2D, ball: BallState, pose: BallPose, number: number) {
   drawSpotForNormal(ctx, ball, pose.w, number);
-  drawSpotForNormal(ctx, ball, vec3Scale(pose.w, -1), number);
 }
 
 function drawSpotForNormal(ctx: CanvasRenderingContext2D, ball: BallState, normal: Vec3, number: number) {
   const front = normal.z;
-  if (front < -0.1) return;
+  // Hide the number if the spot is facing down/backward to keep visibility realistic.
+  if (front < 0.18) return;
 
   const cx = ball.pos.x + normal.x * ball.radius * 0.56;
   const cy = ball.pos.y + normal.y * ball.radius * 0.56;
   const r = Math.max(5.4, ball.radius * (0.3 + Math.max(0, front) * 0.14));
-  const alpha = Math.max(0.58, Math.min(1, (front + 0.1) / 1.1));
+  const alpha = Math.max(0.65, Math.min(1, (front - 0.18) / 0.82));
 
   ctx.save();
   ctx.globalAlpha = alpha;

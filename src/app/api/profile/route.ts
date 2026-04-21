@@ -14,6 +14,7 @@ type ArenaProfileResponseUser = {
     wins: number;
     losses: number;
     matchesPlayed: number;
+    winStreak: number;
     rating: number;
     level: number;
     xp: number;
@@ -67,6 +68,7 @@ function fallbackProfileFromChat(chatUser: ChatProfile): ArenaProfileResponseUse
       wins: 0,
       losses: 0,
       matchesPlayed: 0,
+      winStreak: 0,
       rating: 1000,
       level: 1,
       xp: 0,
@@ -77,6 +79,25 @@ function fallbackProfileFromChat(chatUser: ChatProfile): ArenaProfileResponseUse
     },
     recentMatches: []
   };
+}
+
+async function getWinStreak(userDbId: string): Promise<number> {
+  const rows = await prisma.matchParticipant.findMany({
+    where: { userId: userDbId },
+    select: {
+      isWinner: true,
+      match: { select: { startedAt: true } }
+    },
+    orderBy: { match: { startedAt: "desc" } },
+    take: 60
+  });
+
+  let streak = 0;
+  for (const row of rows) {
+    if (!row.isWinner) break;
+    streak += 1;
+  }
+  return streak;
 }
 
 function withFallbackData(
@@ -219,6 +240,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const user = await resolveArenaUser(chatUser);
+    const winStreak = await getWinStreak(user.id).catch(() => 0);
     return NextResponse.json({
       user: {
         id: user.chatUserId ?? user.id,
@@ -231,6 +253,7 @@ export async function GET(request: NextRequest) {
               xp: user.playerStats.xp ?? 0,
               coins: user.playerStats.coins ?? 1000,
               cash: user.playerStats.cash ?? 200,
+              winStreak,
               ownedCueIds: parseOwnedCueIds(user.playerStats.ownedCueIds),
               equippedCueId: user.playerStats.equippedCueId || "cue_beginner"
             }

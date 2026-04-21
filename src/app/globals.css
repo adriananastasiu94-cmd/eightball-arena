@@ -19,3 +19,41 @@ body {
 * {
   box-sizing: border-box;
 }
+
+@keyframes arenaCoinToBalance {
+  0% {
+    transform: translate(-18px, -72px) scale(0.7);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  78% {
+    opacity: 0.92;
+  }
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0;
+  }
+}
+
+.arena-coin-stream {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.arena-coin-token {
+  position: absolute;
+  left: var(--coin-left, 50%);
+  top: 0.4rem;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 238, 138, 0.8);
+  background: radial-gradient(circle at 32% 28%, #fff4bf 0%, #f8d24a 56%, #c78c12 100%);
+  box-shadow: 0 0 10px rgba(255, 205, 64, 0.45);
+  animation: arenaCoinToBalance 1.15s cubic-bezier(0.18, 0.64, 0.28, 1) infinite;
+  animation-delay: var(--coin-delay, 0ms);
+}

@@ -14,7 +14,13 @@ export function useArenaSocket(enabled: boolean) {
   const [selfUserId, setSelfUserId] = useState<string | null>(null);
   const [state, setState] = useState<MatchState | null>(null);
   const [matchFound, setMatchFound] = useState(false);
-  const [result, setResult] = useState<{ winnerUserId: string | null; reason: string } | null>(null);
+  const [result, setResult] = useState<{
+    matchId: string;
+    winnerUserId: string | null;
+    reason: string;
+    stakeCoins: number;
+    potCoins: number;
+  } | null>(null);
   const [replay, setReplay] = useState<{ id: string; frames: BallState[][]; fps: number; startAtMs?: number } | null>(
     null
   );
