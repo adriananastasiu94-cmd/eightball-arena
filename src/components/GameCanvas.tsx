@@ -2,7 +2,7 @@
 
 import { PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BallState, MatchState, ShotInput } from "@/game/types";
-import { PHYSICS } from "@/game/constants";
+import { predictCueObjectCollisionVectors } from "@/game/physics/engine";
 import { ARENA_THEME } from "@/game/rendering/theme";
 import { CueStyle, TableSkin } from "@/game/rendering/customization";
 
@@ -709,29 +709,13 @@ function predictFirstCollision(
   const toTarget = { x: best.ball.pos.x - cueImpact.x, y: best.ball.pos.y - cueImpact.y };
   const l = Math.hypot(toTarget.x, toTarget.y) || 1;
   const n = { x: toTarget.x / l, y: toTarget.y / l };
-  const incomingNormal = dir.x * n.x + dir.y * n.y;
-  if (incomingNormal <= 1e-4) return null;
-
-  const e = PHYSICS.restitutionBall;
-  const cueNormalAfter = incomingNormal * (1 - e) * 0.5;
-  const targetNormalAfter = incomingNormal * (1 + e) * 0.5;
-  const cueTangent = { x: dir.x - n.x * incomingNormal, y: dir.y - n.y * incomingNormal };
-
-  let cueOut = { x: cueTangent.x + n.x * cueNormalAfter, y: cueTangent.y + n.y * cueNormalAfter };
-  let targetOut = { x: n.x * targetNormalAfter, y: n.y * targetNormalAfter };
-  const tangent = { x: -n.y, y: n.x };
-  const relTan = ((targetOut.x - cueOut.x) * tangent.x) + ((targetOut.y - cueOut.y) * tangent.y);
-  const tanImpulse = relTan * PHYSICS.collisionTangentialFriction * 0.5;
-  cueOut = { x: cueOut.x + tangent.x * tanImpulse, y: cueOut.y + tangent.y * tanImpulse };
-  targetOut = { x: targetOut.x - tangent.x * tanImpulse, y: targetOut.y - tangent.y * tanImpulse };
-
-  cueOut = { x: cueOut.x * PHYSICS.collisionEnergyRetain, y: cueOut.y * PHYSICS.collisionEnergyRetain };
-  targetOut = { x: targetOut.x * PHYSICS.collisionEnergyRetain, y: targetOut.y * PHYSICS.collisionEnergyRetain };
-
-  const targetLen = Math.hypot(targetOut.x, targetOut.y);
-  const cueOutLen = Math.hypot(cueOut.x, cueOut.y);
-  const targetDir = targetLen > 1e-4 ? { x: targetOut.x / targetLen, y: targetOut.y / targetLen } : n;
-  const cueDeflectDir = cueOutLen > 1e-4 ? { x: cueOut.x / cueOutLen, y: cueOut.y / cueOutLen } : null;
+  const vectors = predictCueObjectCollisionVectors(dir, n);
+  if (!vectors) return null;
+  const targetLen = Math.hypot(vectors.objectOut.x, vectors.objectOut.y);
+  const cueOutLen = Math.hypot(vectors.cueOut.x, vectors.cueOut.y);
+  const targetDir = targetLen > 1e-4 ? { x: vectors.objectOut.x / targetLen, y: vectors.objectOut.y / targetLen } : n;
+  const cueDeflectDir =
+    cueOutLen > 1e-4 ? { x: vectors.cueOut.x / cueOutLen, y: vectors.cueOut.y / cueOutLen } : null;
 
   return {
     target: best.ball,

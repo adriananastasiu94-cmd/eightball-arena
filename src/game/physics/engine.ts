@@ -64,6 +64,37 @@ function resolveBallCollision(a: BallState, b: BallState): boolean {
   return true;
 }
 
+export function predictCueObjectCollisionVectors(
+  cueDir: Vec2,
+  contactNormal: Vec2
+): { cueOut: Vec2; objectOut: Vec2 } | null {
+  const nLen = vec.len(contactNormal);
+  if (nLen < 1e-6) return null;
+  const n = vec.scale(contactNormal, 1 / nLen);
+  const cueIn = vec.norm(cueDir);
+  if (vec.len(cueIn) < 1e-6) return null;
+
+  const relVel = vec.sub({ x: 0, y: 0 }, cueIn);
+  const sep = vec.dot(relVel, n);
+  if (sep >= 0) return null;
+
+  const impulse = (-(1 + PHYSICS.restitutionBall) * sep) / 2;
+  const impulseVec = vec.scale(n, impulse);
+  let cueOut = vec.sub(cueIn, impulseVec);
+  let objectOut = vec.add({ x: 0, y: 0 }, impulseVec);
+
+  const tangent = { x: -n.y, y: n.x };
+  const relTan = vec.dot(vec.sub(objectOut, cueOut), tangent);
+  const tanImpulse = relTan * PHYSICS.collisionTangentialFriction * 0.5;
+  cueOut = vec.add(cueOut, vec.scale(tangent, tanImpulse));
+  objectOut = vec.sub(objectOut, vec.scale(tangent, tanImpulse));
+
+  cueOut = vec.scale(cueOut, PHYSICS.collisionEnergyRetain);
+  objectOut = vec.scale(objectOut, PHYSICS.collisionEnergyRetain);
+
+  return { cueOut, objectOut };
+}
+
 function inPocketWindow(pos: number, centers: number[], halfOpen: number): boolean {
   return centers.some((c) => Math.abs(pos - c) <= halfOpen);
 }
