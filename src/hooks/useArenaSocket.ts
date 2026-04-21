@@ -101,7 +101,7 @@ export function useArenaSocket(enabled: boolean) {
       replay,
       shotError,
       shotLocked: isShotPending || Boolean(state?.shotInProgress),
-      joinQueue: () => socketRef.current?.emit("queue:join"),
+      joinQueue: (stake?: number) => socketRef.current?.emit("queue:join", { stake }),
       leaveQueue: () => socketRef.current?.emit("queue:leave"),
       shoot: (shot: ShotInput) => {
         if (shotPendingRef.current || state?.shotInProgress) return;

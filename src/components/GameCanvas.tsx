@@ -2,6 +2,7 @@
 
 import { PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BallState, MatchState, ShotInput } from "@/game/types";
+import { PHYSICS } from "@/game/constants";
 import { ARENA_THEME } from "@/game/rendering/theme";
 import { CueStyle, TableSkin } from "@/game/rendering/customization";
 
@@ -614,22 +615,6 @@ export function GameCanvas({
       <div className="absolute right-3 top-3 rounded-xl bg-black/45 px-3 py-2 text-xs text-white/90">
         Power: {Math.round(displayPower * 100)}%
       </div>
-      {onShotPowerChange && (
-        <div className="absolute bottom-3 right-3 rounded-xl border border-white/15 bg-black/45 px-2 py-2">
-          <label className="mb-1 block text-center text-[10px] uppercase tracking-wide text-white/70">Force</label>
-          <input
-            aria-label="Shot power"
-            type="range"
-            min={0.08}
-            max={1}
-            step={0.01}
-            value={displayPower}
-            disabled={inputLocked || !isMyTurn}
-            onChange={(e) => onShotPowerChange(Number(e.target.value))}
-            className="h-28 w-4 cursor-pointer appearance-none rounded-full bg-white/20 accent-[#d6b56f] [writing-mode:bt-lr] [-webkit-appearance:slider-vertical]"
-          />
-        </div>
-      )}
       {inputLocked && (
         <div className="absolute left-3 top-3 rounded-xl bg-black/55 px-3 py-2 text-xs text-white/90">
           {lockLabel || "Shot in progress..."}
@@ -723,11 +708,24 @@ function predictFirstCollision(
   };
   const toTarget = { x: best.ball.pos.x - cueImpact.x, y: best.ball.pos.y - cueImpact.y };
   const l = Math.hypot(toTarget.x, toTarget.y) || 1;
-  const targetDir = { x: toTarget.x / l, y: toTarget.y / l };
+  const n = { x: toTarget.x / l, y: toTarget.y / l };
+  const sep = -((dir.x * n.x) + (dir.y * n.y));
+  const impulse = sep > 0 ? ((1 + PHYSICS.restitutionBall) * sep) / 2 : 0;
 
-  const proj = dir.x * targetDir.x + dir.y * targetDir.y;
-  const cueOut = { x: dir.x - targetDir.x * proj, y: dir.y - targetDir.y * proj };
+  let cueOut = { x: dir.x - n.x * impulse, y: dir.y - n.y * impulse };
+  let targetOut = { x: n.x * impulse, y: n.y * impulse };
+  const tangent = { x: -n.y, y: n.x };
+  const relTan = ((targetOut.x - cueOut.x) * tangent.x) + ((targetOut.y - cueOut.y) * tangent.y);
+  const tanImpulse = relTan * PHYSICS.collisionTangentialFriction * 0.5;
+  cueOut = { x: cueOut.x + tangent.x * tanImpulse, y: cueOut.y + tangent.y * tanImpulse };
+  targetOut = { x: targetOut.x - tangent.x * tanImpulse, y: targetOut.y - tangent.y * tanImpulse };
+
+  cueOut = { x: cueOut.x * PHYSICS.collisionEnergyRetain, y: cueOut.y * PHYSICS.collisionEnergyRetain };
+  targetOut = { x: targetOut.x * PHYSICS.collisionEnergyRetain, y: targetOut.y * PHYSICS.collisionEnergyRetain };
+
+  const targetLen = Math.hypot(targetOut.x, targetOut.y);
   const cueOutLen = Math.hypot(cueOut.x, cueOut.y);
+  const targetDir = targetLen > 1e-4 ? { x: targetOut.x / targetLen, y: targetOut.y / targetLen } : n;
   const cueDeflectDir = cueOutLen > 1e-4 ? { x: cueOut.x / cueOutLen, y: cueOut.y / cueOutLen } : null;
 
   return {

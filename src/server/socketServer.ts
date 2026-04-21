@@ -49,8 +49,9 @@ export function createSocketServer(httpServer: HttpServer) {
 
     socket.emit("queue:status", matchmaker.status(user.userId));
 
-    socket.on("queue:join", () => {
-      matchmaker.joinQueue({ ...user, socketId: socket.id });
+    socket.on("queue:join", (payload?: { stake?: number }) => {
+      const stake = Matchmaker.sanitizeStake(payload?.stake);
+      matchmaker.joinQueue({ ...user, socketId: socket.id, stake });
       socket.emit("queue:status", matchmaker.status(user.userId));
     });
 

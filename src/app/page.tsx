@@ -33,6 +33,7 @@ type Me = {
 };
 
 export default function HomePage() {
+  const STAKE_OPTIONS = [1, 2, 3, 5, 10, 25, 50, 100] as const;
   const SESSION_CACHE_KEY = "arena_cached_user_v1";
   const [me, setMe] = useState<Me | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -46,6 +47,7 @@ export default function HomePage() {
   const [mode, setMode] = useState<"online" | "sandbox">("online");
   const [localState, setLocalState] = useState<MatchState | null>(null);
   const [localReplay, setLocalReplay] = useState<{ id: string; frames: MatchState["balls"][]; fps: number } | null>(null);
+  const [selectedStake, setSelectedStake] = useState<number>(10);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const socket = useArenaSocket(Boolean(me) && mode === "online");
 
@@ -142,6 +144,28 @@ export default function HomePage() {
 
     const timeoutId = window.setTimeout(() => {
       const liveState = localState;
+      if (liveState.ballInHand) {
+        const cue = liveState.balls.find((b) => b.kind === "cue");
+        if (cue) {
+          const baseX = liveState.table.width * 0.25;
+          for (let i = 0; i < 12; i += 1) {
+            const y = liveState.table.height * (0.2 + Math.random() * 0.6);
+            const left = liveState.table.rail + cue.radius;
+            const right = liveState.table.width - liveState.table.rail - cue.radius;
+            const top = liveState.table.rail + cue.radius;
+            const bottom = liveState.table.height - liveState.table.rail - cue.radius;
+            const pos = { x: Math.max(left, Math.min(right, baseX)), y: Math.max(top, Math.min(bottom, y)) };
+            const overlaps = liveState.balls.some((b) => {
+              if (b.kind === "cue" || b.pocketed) return false;
+              return Math.hypot(b.pos.x - pos.x, b.pos.y - pos.y) < cue.radius + b.radius + 0.5;
+            });
+            if (!overlaps) {
+              onPlaceCue(pos.x, pos.y);
+              break;
+            }
+          }
+        }
+      }
 
       const cue = liveState.balls.find((b) => b.kind === "cue" && !b.pocketed);
       const targets = liveState.balls.filter((b) => !b.pocketed && b.kind !== "cue");
@@ -470,6 +494,16 @@ export default function HomePage() {
                 : "Sandbox ready"}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <label className="text-xs uppercase tracking-wide text-white/60">Power</label>
+            <input
+              type="range"
+              min={0.08}
+              max={1}
+              step={0.01}
+              value={shotPower}
+              onChange={(e) => setShotPower(Number(e.target.value))}
+              className="w-24 md:w-28"
+            />
             <label className="text-xs uppercase tracking-wide text-white/60">Aim Assist</label>
             <input
               type="range"
@@ -509,8 +543,20 @@ export default function HomePage() {
 
         {mode === "online" && (
           <div className="mt-4 flex flex-wrap items-center gap-2">
+            <label className="text-xs uppercase tracking-wide text-white/60">Stake</label>
+            <select
+              value={selectedStake}
+              onChange={(e) => setSelectedStake(Number(e.target.value))}
+              className="rounded-lg border border-white/20 bg-black/35 px-2 py-1 text-sm text-white"
+            >
+              {STAKE_OPTIONS.map((stake) => (
+                <option key={stake} value={stake}>
+                  {stake} coins
+                </option>
+              ))}
+            </select>
             {!socket.queue.inQueue ? (
-              <button onClick={socket.joinQueue} className="rounded-xl bg-brass px-4 py-2 font-medium text-slate">
+              <button onClick={() => socket.joinQueue(selectedStake)} className="rounded-xl bg-brass px-4 py-2 font-medium text-slate">
                 Play Now
               </button>
             ) : (

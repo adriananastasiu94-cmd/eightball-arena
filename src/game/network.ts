@@ -1,7 +1,7 @@
 import { MatchState, ShotInput } from "./types";
 
 export type ClientToServerEvents = {
-  "queue:join": () => void;
+  "queue:join": (payload?: { stake?: number }) => void;
   "queue:leave": () => void;
   "match:shot": (payload: ShotInput) => void;
   "match:ball-in-hand": (payload: { x: number; y: number }) => void;

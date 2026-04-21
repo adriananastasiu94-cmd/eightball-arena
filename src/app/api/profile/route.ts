@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
         ? {
             ...user.playerStats,
             xp: user.playerStats.xp ?? 0,
-            coins: user.playerStats.coins ?? 10000,
+            coins: user.playerStats.coins ?? 1000,
             cash: user.playerStats.cash ?? 200,
             ownedCueIds: parseOwnedCueIds(user.playerStats.ownedCueIds),
             equippedCueId: user.playerStats.equippedCueId || "cue_beginner"

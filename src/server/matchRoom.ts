@@ -45,7 +45,9 @@ export class MatchRoom {
   constructor(
     private readonly io: Server,
     private readonly players: [ConnectedPlayer, ConnectedPlayer],
-    private readonly onFinished: (roomId: string) => void
+    private readonly onFinished: (roomId: string) => void,
+    private readonly stakeCoins: number,
+    private readonly potCoins: number
   ) {
     this.id = `room_${Math.random().toString(36).slice(2, 10)}`;
     players.forEach((p) => this.socketsByUser.set(p.userId, p.socketId));
@@ -244,6 +246,7 @@ export class MatchRoom {
     });
 
     for (const p of this.state.players) {
+      const coinsAward = p.userId === winnerUserId ? this.potCoins : 0;
       await prisma.playerStats.upsert({
         where: { userId: p.userId },
         create: {
@@ -253,7 +256,7 @@ export class MatchRoom {
           matchesPlayed: 1,
           rating: 1000 + (p.userId === winnerUserId ? 10 : -10),
           xp: p.userId === winnerUserId ? 280 : 140,
-          coins: 10000 + (p.userId === winnerUserId ? 650 : 280),
+          coins: 1000 + coinsAward,
           cash: 200 + (p.userId === winnerUserId ? 2 : 1)
         },
         update: {
@@ -262,7 +265,7 @@ export class MatchRoom {
           matchesPlayed: { increment: 1 },
           rating: { increment: p.userId === winnerUserId ? 10 : -10 },
           xp: { increment: p.userId === winnerUserId ? 280 : 140 },
-          coins: { increment: p.userId === winnerUserId ? 650 : 280 },
+          coins: { increment: coinsAward },
           cash: { increment: p.userId === winnerUserId ? 2 : 1 }
         }
       });
@@ -271,7 +274,10 @@ export class MatchRoom {
         data: {
           userId: p.userId,
           matchId: match.id,
-          summary: p.userId === winnerUserId ? `Victory by ${reason}` : `Defeat by ${reason}`
+          summary:
+            p.userId === winnerUserId
+              ? `Victory by ${reason} (+${this.potCoins} coins from ${this.stakeCoins} stake)`
+              : `Defeat by ${reason} (-${this.stakeCoins} coins stake)`
         }
       });
     }
