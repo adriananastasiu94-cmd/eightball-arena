@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { chatMe } from "@/lib/chatAuth";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 
 const grantCoinsSchema = z.object({
   email: z.string().email(),
@@ -16,6 +16,30 @@ function getAdminAllowlist(): Set<string> {
     .map((value) => value.trim().toLowerCase())
     .filter((value) => value.length > 0);
   return new Set(entries);
+}
+
+function sanitizeUsername(value: string): string {
+  const clean = value.replace(/[^a-zA-Z0-9_]/g, "").slice(0, 24);
+  return clean.length > 0 ? clean : "arena_player";
+}
+
+async function buildUniqueUsername(
+  tx: Omit<
+    PrismaClient,
+    "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
+  >,
+  preferred: string
+): Promise<string> {
+  const base = sanitizeUsername(preferred);
+  for (let i = 0; i < 2000; i += 1) {
+    const candidate = i === 0 ? base : `${base}_${i}`;
+    const existing = await tx.user.findUnique({
+      where: { username: candidate },
+      select: { id: true }
+    });
+    if (!existing) return candidate;
+  }
+  return `arena_${Date.now()}`;
 }
 
 export async function POST(request: NextRequest) {
@@ -45,7 +69,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.findFirst({
+      let user = await tx.user.findFirst({
         where: {
           email: {
             equals: targetEmail,
@@ -54,7 +78,16 @@ export async function POST(request: NextRequest) {
         },
         select: { id: true, email: true, username: true }
       });
-      if (!user) return null;
+      if (!user) {
+        const username = await buildUniqueUsername(tx, targetEmail.split("@")[0]);
+        user = await tx.user.create({
+          data: {
+            email: targetEmail.toLowerCase(),
+            username
+          },
+          select: { id: true, email: true, username: true }
+        });
+      }
 
       await tx.playerStats.upsert({
         where: { userId: user.id },
@@ -74,8 +107,6 @@ export async function POST(request: NextRequest) {
         cash: updatedStats.cash
       };
     });
-
-    if (!result) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
     return NextResponse.json({
       ok: true,
