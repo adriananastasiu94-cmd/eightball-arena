@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chatMe } from "@/lib/chatAuth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 function parseOwnedCueIds(value: unknown): string[] {
   if (!Array.isArray(value)) return ["cue_beginner"];
@@ -20,29 +21,88 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const user = await prisma.user.upsert({
-    where: { chatUserId: chatUser.id },
-    update: {
-      email: chatUser.email,
-      username: chatUser.username,
-      avatarUrl: chatUser.avatarUrl ?? null
-    },
-    create: {
-      chatUserId: chatUser.id,
-      email: chatUser.email,
-      username: chatUser.username,
-      avatarUrl: chatUser.avatarUrl ?? null,
-      playerStats: { create: {} }
-    },
-    include: {
-      playerStats: true,
-      history: {
-        orderBy: { createdAt: "desc" },
-        take: 10,
-        include: { match: true }
+  const includePayload = {
+    playerStats: true,
+    history: {
+      orderBy: { createdAt: "desc" as const },
+      take: 10,
+      include: { match: true }
+    }
+  };
+
+  let user;
+  try {
+    const byChatId = await prisma.user.findUnique({
+      where: { chatUserId: chatUser.id },
+      include: includePayload
+    });
+
+    if (byChatId) {
+      user = await prisma.user.update({
+        where: { id: byChatId.id },
+        data: {
+          email: chatUser.email,
+          username: chatUser.username,
+          avatarUrl: chatUser.avatarUrl ?? null
+        },
+        include: includePayload
+      });
+    } else {
+      const byEmail = await prisma.user.findUnique({
+        where: { email: chatUser.email },
+        include: includePayload
+      });
+
+      if (byEmail) {
+        user = await prisma.user.update({
+          where: { id: byEmail.id },
+          data: {
+            chatUserId: chatUser.id,
+            username: chatUser.username,
+            avatarUrl: chatUser.avatarUrl ?? null
+          },
+          include: includePayload
+        });
+      } else {
+        user = await prisma.user.create({
+          data: {
+            chatUserId: chatUser.id,
+            email: chatUser.email,
+            username: chatUser.username,
+            avatarUrl: chatUser.avatarUrl ?? null,
+            playerStats: { create: {} }
+          },
+          include: includePayload
+        });
       }
     }
-  });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const fallback = await prisma.user.findFirst({
+        where: {
+          OR: [{ chatUserId: chatUser.id }, { email: chatUser.email }, { username: chatUser.username }]
+        },
+        include: includePayload
+      });
+
+      if (fallback) {
+        user = await prisma.user.update({
+          where: { id: fallback.id },
+          data: {
+            chatUserId: chatUser.id,
+            email: chatUser.email,
+            username: chatUser.username,
+            avatarUrl: chatUser.avatarUrl ?? null
+          },
+          include: includePayload
+        });
+      } else {
+        throw error;
+      }
+    } else {
+      throw error;
+    }
+  }
 
   return NextResponse.json({
     user: {

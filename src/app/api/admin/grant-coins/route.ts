@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { chatMe } from "@/lib/chatAuth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 const grantCoinsSchema = z.object({
   email: z.string().email(),
@@ -39,13 +40,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const targetEmail = parsed.data.email.toLowerCase();
+  const targetEmail = parsed.data.email.trim();
   const amount = parsed.data.amount;
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.findUnique({
-        where: { email: targetEmail },
+      const user = await tx.user.findFirst({
+        where: {
+          email: {
+            equals: targetEmail,
+            mode: "insensitive"
+          }
+        },
         select: { id: true, email: true, username: true }
       });
       if (!user) return null;
@@ -84,7 +90,13 @@ export async function POST(request: NextRequest) {
         cash: result.cash
       }
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return NextResponse.json(
+        { error: `Unable to grant coins right now (${error.code})` },
+        { status: 500 }
+      );
+    }
     return NextResponse.json({ error: "Unable to grant coins right now" }, { status: 500 });
   }
 }
