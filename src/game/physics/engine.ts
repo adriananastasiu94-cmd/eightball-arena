@@ -12,18 +12,74 @@ export type SimulationResult = {
   events: SimulationEvent[];
   finalBalls: BallState[];
 };
+type PocketKind = "corner" | "side";
+type PocketDescriptor = {
+  x: number;
+  y: number;
+  kind: PocketKind;
+  edgeX: -1 | 0 | 1;
+  edgeY: -1 | 1;
+};
+type PocketProfile = {
+  cornerCenterHalfOpen: number;
+  sideCenterHalfOpen: number;
+  cornerShelf: number;
+  sideShelf: number;
+  cornerJawRadius: number;
+  sideJawRadius: number;
+  cornerCaptureRadius: number;
+  sideCaptureRadius: number;
+  cornerFunnelRadius: number;
+  sideFunnelRadius: number;
+};
 
 const cloneBalls = (balls: BallState[]): BallState[] =>
   balls.map((b) => ({ ...b, pos: { ...b.pos }, vel: { ...b.vel } }));
 
-const pockets = (table: TableConfig): Vec2[] => [
-  { x: table.rail, y: table.rail },
-  { x: table.width / 2, y: table.rail },
-  { x: table.width - table.rail, y: table.rail },
-  { x: table.rail, y: table.height - table.rail },
-  { x: table.width / 2, y: table.height - table.rail },
-  { x: table.width - table.rail, y: table.height - table.rail }
+const pockets = (table: TableConfig): PocketDescriptor[] => [
+  { x: table.rail, y: table.rail, kind: "corner", edgeX: -1, edgeY: -1 },
+  { x: table.width / 2, y: table.rail, kind: "side", edgeX: 0, edgeY: -1 },
+  { x: table.width - table.rail, y: table.rail, kind: "corner", edgeX: 1, edgeY: -1 },
+  { x: table.rail, y: table.height - table.rail, kind: "corner", edgeX: -1, edgeY: 1 },
+  { x: table.width / 2, y: table.height - table.rail, kind: "side", edgeX: 0, edgeY: 1 },
+  { x: table.width - table.rail, y: table.height - table.rail, kind: "corner", edgeX: 1, edgeY: 1 }
 ];
+
+function unitsPerInch(table: TableConfig): number {
+  return (table.ballRadius * 2) / 2.25;
+}
+
+function getPocketProfile(table: TableConfig, ballRadius: number): PocketProfile {
+  const upi = unitsPerInch(table);
+  const cornerMouth = PHYSICS.cornerPocketMouthInches * upi;
+  const sideMouth = PHYSICS.sidePocketMouthInches * upi;
+  const cornerCenterHalfOpen = Math.max(
+    ballRadius * 0.8,
+    cornerMouth * 0.5 - ballRadius * PHYSICS.pocketNoseCenterClearance
+  );
+  const sideCenterHalfOpen = Math.max(
+    ballRadius * 0.95,
+    sideMouth * 0.5 - ballRadius * PHYSICS.pocketNoseCenterClearance
+  );
+  const cornerShelf = PHYSICS.cornerShelfInches * upi;
+  const sideShelf = PHYSICS.sideShelfInches * upi;
+  const cornerJawRadius = PHYSICS.cornerJawRadiusInches * upi;
+  const sideJawRadius = PHYSICS.sideJawRadiusInches * upi;
+  const cornerCaptureRadius = ballRadius * PHYSICS.cornerPocketCaptureRadiusInBalls;
+  const sideCaptureRadius = ballRadius * PHYSICS.sidePocketCaptureRadiusInBalls;
+  return {
+    cornerCenterHalfOpen,
+    sideCenterHalfOpen,
+    cornerShelf,
+    sideShelf,
+    cornerJawRadius,
+    sideJawRadius,
+    cornerCaptureRadius,
+    sideCaptureRadius,
+    cornerFunnelRadius: Math.max(cornerCaptureRadius + ballRadius * 0.95, table.pocketRadius * 0.92),
+    sideFunnelRadius: Math.max(sideCaptureRadius + ballRadius * 0.95, table.pocketRadius * 0.96)
+  };
+}
 
 function resolveBallCollision(a: BallState, b: BallState): boolean {
   if (a.pocketed || b.pocketed) return false;
@@ -99,42 +155,98 @@ function inPocketWindow(pos: number, centers: number[], halfOpen: number): boole
   return centers.some((c) => Math.abs(pos - c) <= halfOpen);
 }
 
-function hasLeftRightRailOpening(y: number, table: TableConfig): boolean {
-  const halfOpen = table.pocketRadius * 0.72;
-  return inPocketWindow(y, [table.rail, table.height - table.rail], halfOpen);
+function hasLeftRightRailOpening(y: number, table: TableConfig, ballRadius: number): boolean {
+  const profile = getPocketProfile(table, ballRadius);
+  return inPocketWindow(y, [table.rail, table.height - table.rail], profile.cornerCenterHalfOpen);
 }
 
-function hasTopBottomRailOpening(x: number, table: TableConfig): boolean {
-  const halfOpen = table.pocketRadius * 0.78;
-  return inPocketWindow(x, [table.rail, table.width / 2, table.width - table.rail], halfOpen);
+function hasTopBottomRailOpening(x: number, table: TableConfig, ballRadius: number): boolean {
+  const profile = getPocketProfile(table, ballRadius);
+  return (
+    inPocketWindow(x, [table.rail, table.width - table.rail], profile.cornerCenterHalfOpen) ||
+    inPocketWindow(x, [table.width / 2], profile.sideCenterHalfOpen)
+  );
+}
+
+function resolveJawCircle(ball: BallState, jaw: Vec2, jawRadius: number): boolean {
+  const delta = vec.sub(ball.pos, jaw);
+  const dist = vec.len(delta);
+  const minDist = ball.radius + jawRadius;
+  if (dist >= minDist) return false;
+  const n = dist > 1e-6 ? vec.scale(delta, 1 / dist) : { x: 1, y: 0 };
+  ball.pos = vec.add(jaw, vec.scale(n, minDist));
+
+  const vn = vec.dot(ball.vel, n);
+  if (vn < 0) {
+    const vt = vec.sub(ball.vel, vec.scale(n, vn));
+    ball.vel = vec.add(
+      vec.scale(vt, PHYSICS.railFrictionOnImpact),
+      vec.scale(n, -vn * PHYSICS.restitutionCushion * 0.92)
+    );
+  }
+  return true;
+}
+
+function resolveJawCollisions(ball: BallState, table: TableConfig): boolean {
+  if (ball.pocketed) return false;
+  const profile = getPocketProfile(table, ball.radius);
+  let hit = false;
+
+  for (const pocket of pockets(table)) {
+    if (pocket.kind === "corner") {
+      const jawX: Vec2 = {
+        x: pocket.x + pocket.edgeX * (profile.cornerCenterHalfOpen + ball.radius * 0.18),
+        y: pocket.y
+      };
+      const jawY: Vec2 = {
+        x: pocket.x,
+        y: pocket.y + pocket.edgeY * (profile.cornerCenterHalfOpen + ball.radius * 0.18)
+      };
+      if (resolveJawCircle(ball, jawX, profile.cornerJawRadius)) hit = true;
+      if (resolveJawCircle(ball, jawY, profile.cornerJawRadius)) hit = true;
+    } else {
+      const leftJaw: Vec2 = {
+        x: pocket.x - (profile.sideCenterHalfOpen + ball.radius * 0.14),
+        y: pocket.y
+      };
+      const rightJaw: Vec2 = {
+        x: pocket.x + (profile.sideCenterHalfOpen + ball.radius * 0.14),
+        y: pocket.y
+      };
+      if (resolveJawCircle(ball, leftJaw, profile.sideJawRadius)) hit = true;
+      if (resolveJawCircle(ball, rightJaw, profile.sideJawRadius)) hit = true;
+    }
+  }
+
+  return hit;
 }
 
 function resolveCushion(ball: BallState, table: TableConfig): boolean {
   if (ball.pocketed) return false;
+  let hit = resolveJawCollisions(ball, table);
   const left = table.rail + ball.radius;
   const right = table.width - table.rail - ball.radius;
   const top = table.rail + ball.radius;
   const bottom = table.height - table.rail - ball.radius;
-  let hit = false;
 
-  if (ball.pos.x < left && !hasLeftRightRailOpening(ball.pos.y, table)) {
+  if (ball.pos.x < left && !hasLeftRightRailOpening(ball.pos.y, table, ball.radius)) {
     ball.pos.x = left;
     ball.vel.x = Math.abs(ball.vel.x) * PHYSICS.restitutionCushion;
     ball.vel.y *= PHYSICS.railFrictionOnImpact;
     hit = true;
-  } else if (ball.pos.x > right && !hasLeftRightRailOpening(ball.pos.y, table)) {
+  } else if (ball.pos.x > right && !hasLeftRightRailOpening(ball.pos.y, table, ball.radius)) {
     ball.pos.x = right;
     ball.vel.x = -Math.abs(ball.vel.x) * PHYSICS.restitutionCushion;
     ball.vel.y *= PHYSICS.railFrictionOnImpact;
     hit = true;
   }
 
-  if (ball.pos.y < top && !hasTopBottomRailOpening(ball.pos.x, table)) {
+  if (ball.pos.y < top && !hasTopBottomRailOpening(ball.pos.x, table, ball.radius)) {
     ball.pos.y = top;
     ball.vel.y = Math.abs(ball.vel.y) * PHYSICS.restitutionCushion;
     ball.vel.x *= PHYSICS.railFrictionOnImpact;
     hit = true;
-  } else if (ball.pos.y > bottom && !hasTopBottomRailOpening(ball.pos.x, table)) {
+  } else if (ball.pos.y > bottom && !hasTopBottomRailOpening(ball.pos.x, table, ball.radius)) {
     ball.pos.y = bottom;
     ball.vel.y = -Math.abs(ball.vel.y) * PHYSICS.restitutionCushion;
     ball.vel.x *= PHYSICS.railFrictionOnImpact;
@@ -159,19 +271,47 @@ function applyFriction(ball: BallState, dt: number): void {
   }
 }
 
+function isInsidePocketThroat(
+  ball: BallState,
+  table: TableConfig,
+  pocket: PocketDescriptor,
+  profile: PocketProfile
+): boolean {
+  if (pocket.kind === "corner") {
+    const cornerDepth = profile.cornerShelf + ball.radius * 0.45;
+    const xInside =
+      pocket.edgeX < 0 ? ball.pos.x <= table.rail + cornerDepth : ball.pos.x >= table.width - table.rail - cornerDepth;
+    const yInside =
+      pocket.edgeY < 0 ? ball.pos.y <= table.rail + cornerDepth : ball.pos.y >= table.height - table.rail - cornerDepth;
+    return xInside && yInside;
+  }
+
+  const sideDepth = profile.sideShelf + ball.radius * 0.42;
+  const yInside =
+    pocket.edgeY < 0 ? ball.pos.y <= table.rail + sideDepth : ball.pos.y >= table.height - table.rail - sideDepth;
+  const xInside = Math.abs(ball.pos.x - pocket.x) <= profile.sideCenterHalfOpen + ball.radius * 0.7;
+  return xInside && yInside;
+}
+
 function resolvePocket(ball: BallState, table: TableConfig): boolean {
   if (ball.pocketed) return false;
+  const profile = getPocketProfile(table, ball.radius);
+
   for (const p of pockets(table)) {
     const toPocket = vec.sub(p, ball.pos);
     const dist = vec.len(toPocket);
-    const mouth = table.pocketRadius * PHYSICS.pocketMouthScale;
-    if (dist <= mouth && dist > 1e-6) {
-      const pullFactor = ((mouth - dist) / mouth) * PHYSICS.pocketPullStrength;
+    const funnel = p.kind === "corner" ? profile.cornerFunnelRadius : profile.sideFunnelRadius;
+    const capture = p.kind === "corner" ? profile.cornerCaptureRadius : profile.sideCaptureRadius;
+    const inThroat = isInsidePocketThroat(ball, table, p, profile);
+
+    if (inThroat && dist <= funnel && dist > 1e-6) {
+      const pullFactor = ((funnel - dist) / funnel) * PHYSICS.pocketPullStrength;
       const pull = vec.scale(toPocket, pullFactor / dist);
       ball.vel = vec.add(ball.vel, pull);
+      ball.vel = vec.scale(ball.vel, 0.992);
     }
 
-    if (dist <= table.pocketRadius * PHYSICS.pocketCaptureScale) {
+    if (inThroat && dist <= capture) {
       ball.pocketed = true;
       ball.vel = { x: 0, y: 0 };
       return true;

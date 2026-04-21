@@ -3,6 +3,7 @@
 import { PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BallState, MatchState, ShotInput } from "@/game/types";
 import { predictCueObjectCollisionVectors } from "@/game/physics/engine";
+import { PHYSICS } from "@/game/constants";
 import { ARENA_THEME } from "@/game/rendering/theme";
 import { CueStyle, TableSkin } from "@/game/rendering/customization";
 
@@ -178,7 +179,7 @@ export function GameCanvas({
     let raf = 0;
 
     const draw = (now: number) => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, 3);
       const rect = wrap.getBoundingClientRect();
       canvas.width = Math.floor(rect.width * dpr);
       canvas.height = Math.floor((rect.width * 0.58) * dpr);
@@ -286,26 +287,51 @@ export function GameCanvas({
       }
 
       const pocketColor = activeTable.pocket;
-      const pockets = [
-        [state.table.rail, state.table.rail],
-        [state.table.width / 2, state.table.rail],
-        [state.table.width - state.table.rail, state.table.rail],
-        [state.table.rail, state.table.height - state.table.rail],
-        [state.table.width / 2, state.table.height - state.table.rail],
-        [state.table.width - state.table.rail, state.table.height - state.table.rail]
-      ];
+      const pocketDefs = getVisualPockets(state.table);
+      const pocketProfile = getPocketVisualProfile(state.table);
+      for (const pocket of pocketDefs) {
+        const outerR = pocket.kind === "corner" ? state.table.pocketRadius * 0.98 : state.table.pocketRadius * 0.9;
+        const innerR = outerR * 0.68;
 
-      for (const [x, y] of pockets) {
         ctx.beginPath();
-        const pocketGrad = ctx.createRadialGradient(x - 2, y - 2, state.table.pocketRadius * 0.2, x, y, state.table.pocketRadius);
-        pocketGrad.addColorStop(0, brighten(pocketColor, 0.1));
+        const pocketGrad = ctx.createRadialGradient(
+          pocket.x - 2,
+          pocket.y - 2,
+          outerR * 0.16,
+          pocket.x,
+          pocket.y,
+          outerR
+        );
+        pocketGrad.addColorStop(0, brighten(pocketColor, 0.05));
         pocketGrad.addColorStop(1, pocketColor);
         ctx.fillStyle = pocketGrad;
-        ctx.arc(x, y, state.table.pocketRadius, 0, Math.PI * 2);
+        ctx.arc(pocket.x, pocket.y, outerR, 0, Math.PI * 2);
         ctx.fill();
+
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(0,0,0,0.65)";
+        ctx.arc(pocket.x, pocket.y, innerR, 0, Math.PI * 2);
+        ctx.fill();
+
         ctx.strokeStyle = "rgba(255,255,255,0.1)";
-        ctx.lineWidth = 1.2;
+        ctx.lineWidth = 1.15;
+        ctx.beginPath();
+        ctx.arc(pocket.x, pocket.y, outerR, 0, Math.PI * 2);
         ctx.stroke();
+
+        if (pocket.kind === "corner") {
+          const jawOffset = pocketProfile.cornerCenterHalfOpen + state.table.ballRadius * 0.18;
+          const jawA = { x: pocket.x + pocket.edgeX * jawOffset, y: pocket.y };
+          const jawB = { x: pocket.x, y: pocket.y + pocket.edgeY * jawOffset };
+          drawPocketJaw(ctx, jawA.x, jawA.y, pocketProfile.cornerJawRadius);
+          drawPocketJaw(ctx, jawB.x, jawB.y, pocketProfile.cornerJawRadius);
+        } else {
+          const jawOffset = pocketProfile.sideCenterHalfOpen + state.table.ballRadius * 0.14;
+          const jawL = { x: pocket.x - jawOffset, y: pocket.y };
+          const jawR = { x: pocket.x + jawOffset, y: pocket.y };
+          drawPocketJaw(ctx, jawL.x, jawL.y, pocketProfile.sideJawRadius);
+          drawPocketJaw(ctx, jawR.x, jawR.y, pocketProfile.sideJawRadius);
+        }
       }
 
       const cue = state.balls.find((b) => b.kind === "cue" && !b.pocketed);
@@ -451,8 +477,11 @@ export function GameCanvas({
 
         ctx.beginPath();
         ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
-        ctx.fillStyle = isCue ? ARENA_THEME.cue : isEight ? ARENA_THEME.eight : isStripe ? "#f3f8ff" : baseColor;
+        ctx.fillStyle = isCue ? "#f6f8fb" : isEight ? "#12161d" : isStripe ? "#fbfcfd" : baseColor;
         ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.28)";
+        ctx.lineWidth = 0.85;
+        ctx.stroke();
 
         if (isStripe) {
           ctx.save();
@@ -460,7 +489,7 @@ export function GameCanvas({
           ctx.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2);
           ctx.clip();
           ctx.fillStyle = baseColor;
-          const bandH = ball.radius * (0.54 + Math.abs(rollCos) * 0.42);
+          const bandH = ball.radius * (0.56 + Math.abs(rollCos) * 0.34);
           const bandOffset = rollSin * ball.radius * 0.72;
           ctx.save();
           ctx.translate(ball.pos.x + dir.x * bandOffset, ball.pos.y + dir.y * bandOffset * 0.32);
@@ -482,7 +511,6 @@ export function GameCanvas({
           };
           if (frontness > 0.06) {
             const labelR = Math.max(2.2, ball.radius * (0.2 + frontness * 0.24));
-            ctx.globalAlpha = 0.35 + frontness * 0.65;
             ctx.fillStyle = "#ffffff";
             ctx.beginPath();
             ctx.arc(ball.pos.x + labelOffset.x, ball.pos.y + labelOffset.y, labelR, 0, Math.PI * 2);
@@ -497,7 +525,6 @@ export function GameCanvas({
             ctx.textBaseline = "middle";
             ctx.fillText(String(ball.number), 0, 0.4);
             ctx.restore();
-            ctx.globalAlpha = 1;
           }
         }
 
@@ -516,7 +543,7 @@ export function GameCanvas({
         ctx.stroke();
 
         const shine = ctx.createRadialGradient(ball.pos.x - 4, ball.pos.y - 4, 0, ball.pos.x, ball.pos.y, ball.radius);
-        shine.addColorStop(0, "rgba(255,255,255,0.7)");
+        shine.addColorStop(0, "rgba(255,255,255,0.5)");
         shine.addColorStop(1, "rgba(255,255,255,0)");
         ctx.fillStyle = shine;
         ctx.beginPath();
@@ -690,6 +717,56 @@ export function GameCanvas({
       )}
     </div>
   );
+}
+
+type VisualPocket = {
+  x: number;
+  y: number;
+  kind: "corner" | "side";
+  edgeX: -1 | 0 | 1;
+  edgeY: -1 | 1;
+};
+
+function getVisualPockets(table: MatchState["table"]): VisualPocket[] {
+  return [
+    { x: table.rail, y: table.rail, kind: "corner", edgeX: -1, edgeY: -1 },
+    { x: table.width / 2, y: table.rail, kind: "side", edgeX: 0, edgeY: -1 },
+    { x: table.width - table.rail, y: table.rail, kind: "corner", edgeX: 1, edgeY: -1 },
+    { x: table.rail, y: table.height - table.rail, kind: "corner", edgeX: -1, edgeY: 1 },
+    { x: table.width / 2, y: table.height - table.rail, kind: "side", edgeX: 0, edgeY: 1 },
+    { x: table.width - table.rail, y: table.height - table.rail, kind: "corner", edgeX: 1, edgeY: 1 }
+  ];
+}
+
+function getPocketVisualProfile(table: MatchState["table"]) {
+  const unitsPerInch = (table.ballRadius * 2) / 2.25;
+  const cornerMouth = PHYSICS.cornerPocketMouthInches * unitsPerInch;
+  const sideMouth = PHYSICS.sidePocketMouthInches * unitsPerInch;
+  return {
+    cornerCenterHalfOpen: Math.max(
+      table.ballRadius * 0.8,
+      cornerMouth * 0.5 - table.ballRadius * PHYSICS.pocketNoseCenterClearance
+    ),
+    sideCenterHalfOpen: Math.max(
+      table.ballRadius * 0.95,
+      sideMouth * 0.5 - table.ballRadius * PHYSICS.pocketNoseCenterClearance
+    ),
+    cornerJawRadius: PHYSICS.cornerJawRadiusInches * unitsPerInch,
+    sideJawRadius: PHYSICS.sideJawRadiusInches * unitsPerInch
+  };
+}
+
+function drawPocketJaw(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+  const jawGrad = ctx.createRadialGradient(x - radius * 0.22, y - radius * 0.22, radius * 0.2, x, y, radius);
+  jawGrad.addColorStop(0, "rgba(58,39,28,0.92)");
+  jawGrad.addColorStop(1, "rgba(24,14,11,0.98)");
+  ctx.fillStyle = jawGrad;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.08)";
+  ctx.lineWidth = 0.8;
+  ctx.stroke();
 }
 
 function colorForBall(number: number): string {
