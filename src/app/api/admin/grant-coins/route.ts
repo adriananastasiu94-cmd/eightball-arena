@@ -3,6 +3,7 @@ import { z } from "zod";
 import { chatMe } from "@/lib/chatAuth";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { grantFallbackCoins } from "@/lib/fallbackWallet";
 
 const grantCoinsSchema = z.object({
   email: z.string().email(),
@@ -126,6 +127,25 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("admin:grant-coins failed", error);
+    try {
+      const fallback = await grantFallbackCoins(targetEmail, amount);
+      return NextResponse.json({
+        ok: true,
+        grantedBy: actor.email,
+        target: {
+          email: fallback.email,
+          username: "fallback_wallet"
+        },
+        amountGranted: amount,
+        balances: {
+          coins: fallback.coins,
+          cash: fallback.cash
+        },
+        warning: "wallet_fallback_mode"
+      });
+    } catch (fallbackError) {
+      console.error("admin:grant-coins fallback failed", fallbackError);
+    }
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       return NextResponse.json(
         { error: "Unable to grant coins right now", code: error.code },

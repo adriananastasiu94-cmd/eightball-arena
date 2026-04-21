@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { chatMe } from "@/lib/chatAuth";
 import { prisma } from "@/lib/prisma";
+import { getFallbackWalletByEmail } from "@/lib/fallbackWallet";
 
 type ArenaProfileResponseUser = {
   id: string;
@@ -74,6 +75,18 @@ function fallbackProfileFromChat(chatUser: ChatProfile): ArenaProfileResponseUse
       equippedCueId: "cue_beginner"
     },
     recentMatches: []
+  };
+}
+
+function withFallbackWallet(user: ArenaProfileResponseUser, wallet?: { coins: number; cash: number } | null): ArenaProfileResponseUser {
+  if (!wallet) return user;
+  return {
+    ...user,
+    stats: {
+      ...user.stats,
+      coins: wallet.coins,
+      cash: wallet.cash
+    }
   };
 }
 
@@ -225,15 +238,17 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("profile:get failed", error);
+    const wallet = await getFallbackWalletByEmail(chatUser.email).catch(() => null);
+    const fallbackUser = withFallbackWallet(fallbackProfileFromChat(chatUser), wallet);
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       return NextResponse.json({
-        user: fallbackProfileFromChat(chatUser),
+        user: fallbackUser,
         warning: "profile_sync_degraded",
         code: error.code
       });
     }
     return NextResponse.json({
-      user: fallbackProfileFromChat(chatUser),
+      user: fallbackUser,
       warning: "profile_sync_degraded"
     });
   }
