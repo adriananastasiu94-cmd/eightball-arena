@@ -39,6 +39,7 @@ type TournamentRound = 1 | 2 | 3;
 type BotDifficultyConfig = {
   label: string;
   reward: number;
+  xpReward: number;
   jitter: number;
   powerMin: number;
   powerMax: number;
@@ -51,6 +52,7 @@ type SandboxSession = {
   kind: "bots" | "tournament";
   difficulty: BotDifficulty;
   rewardCoins: number;
+  rewardXp: number;
   opponentId: string;
   opponentName: string;
   roundLabel?: string;
@@ -90,6 +92,7 @@ const BOT_CONFIG: Record<BotDifficulty, BotDifficultyConfig> = {
   easy: {
     label: "Easy",
     reward: 1,
+    xpReward: 1,
     jitter: 0.42,
     powerMin: 0.25,
     powerMax: 0.58,
@@ -99,6 +102,7 @@ const BOT_CONFIG: Record<BotDifficulty, BotDifficultyConfig> = {
   normal: {
     label: "Normal",
     reward: 2,
+    xpReward: 5,
     jitter: 0.24,
     powerMin: 0.32,
     powerMax: 0.72,
@@ -108,6 +112,7 @@ const BOT_CONFIG: Record<BotDifficulty, BotDifficultyConfig> = {
   hard: {
     label: "Hard",
     reward: 5,
+    xpReward: 25,
     jitter: 0.14,
     powerMin: 0.36,
     powerMax: 0.84,
@@ -117,6 +122,7 @@ const BOT_CONFIG: Record<BotDifficulty, BotDifficultyConfig> = {
   pro: {
     label: "Pro",
     reward: 10,
+    xpReward: 100,
     jitter: 0.08,
     powerMin: 0.42,
     powerMax: 0.95,
@@ -254,7 +260,7 @@ export default function HomePage() {
     return () => window.clearTimeout(id);
   }, [menuView, mode, pendingQueueStake, socket]);
 
-  const applyCoinDelta = (delta: number) => {
+  const applyProgressDelta = ({ coins = 0, xp = 0 }: { coins?: number; xp?: number }) => {
     setMe((prev) =>
       prev
         ? {
@@ -262,7 +268,12 @@ export default function HomePage() {
             stats: prev.stats
               ? {
                   ...prev.stats,
-                  coins: Math.max(0, prev.stats.coins + delta)
+                  coins: Math.max(0, prev.stats.coins + coins),
+                  xp: Math.max(0, prev.stats.xp + xp),
+                  level: Math.max(
+                    1,
+                    Math.floor(Math.max(0, prev.stats.xp + xp) / 1000) + 1
+                  )
                 }
               : prev.stats
           }
@@ -297,6 +308,7 @@ export default function HomePage() {
       kind: "bots",
       difficulty,
       rewardCoins: cfg.reward,
+      rewardXp: cfg.xpReward,
       opponentId: `bot_${difficulty}`,
       opponentName: `${cfg.label} Bot`,
       roundLabel: `${cfg.label} Challenge`,
@@ -312,7 +324,7 @@ export default function HomePage() {
     }
 
     const run = createTournamentRun(me, selectedTournamentStake);
-    applyCoinDelta(-selectedTournamentStake);
+    applyProgressDelta({ coins: -selectedTournamentStake });
     const seeded = autoResolveTournamentMatches(run.matches, run.participants, me.id);
     const nextMatch = pickNextUserMatch(seeded, me.id);
     setTournamentRun({
@@ -341,6 +353,7 @@ export default function HomePage() {
       kind: "tournament",
       difficulty: nextOpponent.difficulty,
       rewardCoins: 0,
+      rewardXp: 0,
       opponentId: nextOpponent.id,
       opponentName: nextOpponent.name,
       tournamentMatchId: nextMatch.id,
@@ -356,8 +369,10 @@ export default function HomePage() {
 
     if (sandboxSession.kind === "bots") {
       if (winnerUserId === me.id) {
-        applyCoinDelta(sandboxSession.rewardCoins);
-        setMenuNotice(`Victory. ${sandboxSession.rewardCoins} coins added.`);
+        applyProgressDelta({ coins: sandboxSession.rewardCoins, xp: sandboxSession.rewardXp });
+        setMenuNotice(
+          `Victory. ${sandboxSession.rewardCoins} coins and ${sandboxSession.rewardXp} EXP added.`
+        );
       } else {
         setMenuNotice("Defeat. Try another bot difficulty.");
       }
@@ -390,7 +405,7 @@ export default function HomePage() {
     const championId = tournamentChampionId(nextMatches);
 
     if (championId === me.id) {
-      applyCoinDelta(tournamentRun.pot);
+      applyProgressDelta({ coins: tournamentRun.pot });
       setTournamentRun({
         ...tournamentRun,
         matches: nextMatches,
@@ -445,6 +460,7 @@ export default function HomePage() {
       kind: "tournament",
       difficulty: nextOpponent.difficulty,
       rewardCoins: 0,
+      rewardXp: 0,
       opponentId: nextOpponent.id,
       opponentName: nextOpponent.name,
       tournamentMatchId: nextUserMatch.id,
@@ -902,7 +918,7 @@ export default function HomePage() {
                   >
                     <div className="text-lg font-extrabold text-[#5a2602]">{cfg.label}</div>
                     <div className="text-sm text-[#6b3405]/80">
-                      Reward on win: {cfg.reward} {cfg.reward === 1 ? "coin" : "coins"}
+                      Reward on win: {cfg.reward} {cfg.reward === 1 ? "coin" : "coins"} + {cfg.xpReward} EXP
                     </div>
                     <button
                       onClick={() => startBotsMatch(difficulty)}

@@ -168,3 +168,87 @@ export async function debitFallbackCoins(
     return { ok: true, wallet: next };
   }
 }
+
+export async function grantFallbackCash(email: string, amount: number): Promise<{ email: string; coins: number; cash: number }> {
+  const normalized = normalizeEmail(email);
+  if (!normalized) throw new Error("INVALID_EMAIL");
+
+  const tableReady = await ensureFallbackWalletTable();
+  if (!tableReady) {
+    const wallet = readMemoryWallet(normalized);
+    return writeMemoryWallet(normalized, { coins: wallet.coins, cash: wallet.cash + amount });
+  }
+
+  try {
+    await prisma.$executeRaw`
+      INSERT INTO arena_wallet_fallback (email)
+      VALUES (${normalized})
+      ON CONFLICT (email) DO NOTHING
+    `;
+
+    const rows = await prisma.$queryRaw<Array<{ email: string; coins: unknown; cash: unknown }>>`
+      UPDATE arena_wallet_fallback
+      SET cash = cash + ${amount}, updated_at = NOW()
+      WHERE email = ${normalized}
+      RETURNING email, coins, cash
+    `;
+
+    const row = rows[0];
+    if (!row) throw new Error("FALLBACK_CASH_UPDATE_FAILED");
+    return {
+      email: row.email,
+      coins: toNumber(row.coins, DEFAULT_COINS),
+      cash: toNumber(row.cash, DEFAULT_CASH + amount)
+    };
+  } catch {
+    const wallet = readMemoryWallet(normalized);
+    return writeMemoryWallet(normalized, { coins: wallet.coins, cash: wallet.cash + amount });
+  }
+}
+
+export async function debitFallbackCash(
+  email: string,
+  amount: number
+): Promise<{ ok: true; wallet: { email: string; coins: number; cash: number } } | { ok: false }> {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return { ok: false };
+
+  const tableReady = await ensureFallbackWalletTable();
+  if (!tableReady) {
+    const wallet = readMemoryWallet(normalized);
+    if (wallet.cash < amount) return { ok: false };
+    const next = writeMemoryWallet(normalized, { coins: wallet.coins, cash: wallet.cash - amount });
+    return { ok: true, wallet: next };
+  }
+
+  try {
+    await prisma.$executeRaw`
+      INSERT INTO arena_wallet_fallback (email)
+      VALUES (${normalized})
+      ON CONFLICT (email) DO NOTHING
+    `;
+
+    const rows = await prisma.$queryRaw<Array<{ email: string; coins: unknown; cash: unknown }>>`
+      UPDATE arena_wallet_fallback
+      SET cash = cash - ${amount}, updated_at = NOW()
+      WHERE email = ${normalized}
+        AND cash >= ${amount}
+      RETURNING email, coins, cash
+    `;
+    const row = rows[0];
+    if (!row) return { ok: false };
+    return {
+      ok: true,
+      wallet: {
+        email: row.email,
+        coins: toNumber(row.coins, DEFAULT_COINS),
+        cash: toNumber(row.cash, DEFAULT_CASH - amount)
+      }
+    };
+  } catch {
+    const wallet = readMemoryWallet(normalized);
+    if (wallet.cash < amount) return { ok: false };
+    const next = writeMemoryWallet(normalized, { coins: wallet.coins, cash: wallet.cash - amount });
+    return { ok: true, wallet: next };
+  }
+}

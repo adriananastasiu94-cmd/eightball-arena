@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { chatMe } from "@/lib/chatAuth";
 import { prisma } from "@/lib/prisma";
 import { getFallbackWalletByEmail } from "@/lib/fallbackWallet";
+import { ensureFallbackInventoryByEmail } from "@/lib/fallbackInventory";
 
 type ArenaProfileResponseUser = {
   id: string;
@@ -78,14 +79,19 @@ function fallbackProfileFromChat(chatUser: ChatProfile): ArenaProfileResponseUse
   };
 }
 
-function withFallbackWallet(user: ArenaProfileResponseUser, wallet?: { coins: number; cash: number } | null): ArenaProfileResponseUser {
-  if (!wallet) return user;
+function withFallbackData(
+  user: ArenaProfileResponseUser,
+  wallet?: { coins: number; cash: number } | null,
+  inventory?: { ownedCueIds: string[]; equippedCueId: string } | null
+): ArenaProfileResponseUser {
   return {
     ...user,
     stats: {
       ...user.stats,
-      coins: wallet.coins,
-      cash: wallet.cash
+      coins: wallet?.coins ?? user.stats.coins,
+      cash: wallet?.cash ?? user.stats.cash,
+      ownedCueIds: inventory?.ownedCueIds ?? user.stats.ownedCueIds,
+      equippedCueId: inventory?.equippedCueId ?? user.stats.equippedCueId
     }
   };
 }
@@ -239,7 +245,8 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("profile:get failed", error);
     const wallet = await getFallbackWalletByEmail(chatUser.email).catch(() => null);
-    const fallbackUser = withFallbackWallet(fallbackProfileFromChat(chatUser), wallet);
+    const inventory = await ensureFallbackInventoryByEmail(chatUser.email).catch(() => null);
+    const fallbackUser = withFallbackData(fallbackProfileFromChat(chatUser), wallet, inventory);
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       return NextResponse.json({
         user: fallbackUser,

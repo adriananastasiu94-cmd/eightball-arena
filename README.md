@@ -103,6 +103,28 @@ Usage example:
 await window.grantCoinsByEmail("player@example.com", 5000);
 ```
 
+Cash grant helper:
+
+```js
+window.grantCashByEmail = async (email, amount) => {
+  const response = await fetch("/api/admin/grant-cash", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, amount })
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data?.error || "Cash grant failed");
+  console.log("Cash grant success:", data);
+  return data;
+};
+```
+
+Usage example:
+
+```js
+await window.grantCashByEmail("player@example.com", 250);
+```
+
 ## Production build
 
 - `npm run build`
