@@ -29,7 +29,6 @@ export function useArenaSocket(enabled: boolean) {
   const replayPayloadByIdRef = useRef<Record<string, ReplayPayload>>({});
   const replayStartByIdRef = useRef<Record<string, ReplayStartSignal>>({});
   const lastCuePlaceRef = useRef<{ x: number; y: number; t: number } | null>(null);
-  const serverOffsetRef = useRef(0);
 
   useEffect(() => {
     if (!enabled) return;
@@ -50,6 +49,13 @@ export function useArenaSocket(enabled: boolean) {
       setMatchFound(true);
       setResult(null);
       setShotError(null);
+      setReplay(null);
+      shotPendingRef.current = false;
+      setIsShotPending(false);
+      if (lockTimerRef.current !== null) {
+        window.clearTimeout(lockTimerRef.current);
+        lockTimerRef.current = null;
+      }
       setPresenceByUser({});
       startedReplayIdsRef.current.clear();
       replayPayloadByIdRef.current = {};
@@ -60,12 +66,18 @@ export function useArenaSocket(enabled: boolean) {
       setState(nextState);
       if (typeof serverTime === "number") {
         const rawOffset = serverTime - Date.now();
-        serverOffsetRef.current = rawOffset;
         setServerOffsetMs(rawOffset);
       }
       if (!nextState.shotInProgress) {
+        setReplay(null);
+        replayPayloadByIdRef.current = {};
+        replayStartByIdRef.current = {};
         shotPendingRef.current = false;
         setIsShotPending(false);
+        if (lockTimerRef.current !== null) {
+          window.clearTimeout(lockTimerRef.current);
+          lockTimerRef.current = null;
+        }
       }
     });
     const tryStartReplay = (replayId: string) => {
@@ -80,9 +92,11 @@ export function useArenaSocket(enabled: boolean) {
       }
 
       let startupDelayMs = 0;
-      if (typeof start.serverStartMs === "number") {
-        const estimatedLocalStartAtMs = start.serverStartMs - serverOffsetRef.current;
-        startupDelayMs = Math.max(0, Math.min(600, Math.round(estimatedLocalStartAtMs - Date.now())));
+      if (typeof start.serverStartMs === "number" && typeof start.serverNowMs === "number") {
+        const declaredLeadMs = start.serverStartMs - start.serverNowMs;
+        startupDelayMs = Math.max(0, Math.min(220, Math.round(declaredLeadMs)));
+      } else if (typeof start.serverStartMs === "number") {
+        startupDelayMs = Math.max(0, Math.min(220, Math.round(start.serverStartMs - Date.now())));
       }
       const localStartAtMs = Date.now() + startupDelayMs;
 
@@ -199,7 +213,11 @@ export function useArenaSocket(enabled: boolean) {
       sendPresence: (payload: { active: boolean; angle: number; power: number }) =>
         socketRef.current?.emit("match:presence", payload),
       rematch: () => socketRef.current?.emit("match:rematch"),
-      clearReplay: () => setReplay(null),
+      clearReplay: () => {
+        setReplay(null);
+        replayPayloadByIdRef.current = {};
+        replayStartByIdRef.current = {};
+      },
       clearShotError: () => setShotError(null)
     }),
     [

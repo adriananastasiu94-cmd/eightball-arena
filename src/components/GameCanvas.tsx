@@ -71,7 +71,7 @@ export function GameCanvas({
   const presenceRafRef = useRef<number | null>(null);
   const presencePendingRef = useRef<{ active: boolean; angle: number; power: number } | null>(null);
   const lastPresenceSentAtRef = useRef(0);
-  const [replayProgress, setReplayProgress] = useState(0);
+  const replayFinishTimerRef = useRef<number | null>(null);
   const displayPower = shotPower ?? aim.power;
   const activeCue = cueStyle ?? {
     id: "default",
@@ -115,6 +115,7 @@ export function GameCanvas({
       if (aimSyncRaf.current !== null) window.cancelAnimationFrame(aimSyncRaf.current);
       if (cuePlacementRaf.current !== null) window.cancelAnimationFrame(cuePlacementRaf.current);
       if (presenceRafRef.current !== null) window.cancelAnimationFrame(presenceRafRef.current);
+      if (replayFinishTimerRef.current !== null) window.clearTimeout(replayFinishTimerRef.current);
     };
   }, []);
 
@@ -128,58 +129,27 @@ export function GameCanvas({
   }, [state?.matchId]);
 
   useEffect(() => {
-    if (!replay || replay.frames.length === 0) {
-      setReplayProgress(0);
-      return;
+    if (replayFinishTimerRef.current !== null) {
+      window.clearTimeout(replayFinishTimerRef.current);
+      replayFinishTimerRef.current = null;
     }
+    if (!replay || replay.frames.length === 0) return;
 
-    let raf = 0;
-    let finished = false;
     const frameDurationMs = 1000 / Math.max(1, replay.fps);
     const warmupDelayMs = Math.max(0, (replay.startAtMs ?? Date.now()) - Date.now());
-    const startedAt = performance.now() + warmupDelayMs;
+    const doneDelayMs = warmupDelayMs + frameDurationMs * replay.frames.length + 16;
+    replayFinishTimerRef.current = window.setTimeout(() => {
+      replayFinishTimerRef.current = null;
+      replayDoneRef.current?.();
+    }, doneDelayMs);
 
-    const tick = (now: number) => {
-      const elapsed = now - startedAt;
-      const progress = Math.max(0, Math.min(replay.frames.length - 1, elapsed / frameDurationMs));
-      setReplayProgress(progress);
-      if (progress < replay.frames.length - 1) {
-        raf = window.requestAnimationFrame(tick);
-      } else if (!finished) {
-        finished = true;
-        window.setTimeout(() => replayDoneRef.current?.(), frameDurationMs);
+    return () => {
+      if (replayFinishTimerRef.current !== null) {
+        window.clearTimeout(replayFinishTimerRef.current);
+        replayFinishTimerRef.current = null;
       }
     };
-
-    raf = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(raf);
   }, [replay]);
-
-  const interpolatedReplayBalls = useMemo(() => {
-    if (!replay || replay.frames.length === 0) return null;
-    const base = Math.floor(replayProgress);
-    const next = Math.min(replay.frames.length - 1, base + 1);
-    const alpha = Math.max(0, Math.min(1, replayProgress - base));
-    const a = replay.frames[base] ?? replay.frames[0];
-    const b = replay.frames[next] ?? a;
-    if (!a || !b) return null;
-
-    return a.map((ball, idx) => {
-      const nb = b[idx] ?? ball;
-      return {
-        ...ball,
-        pocketed: nb.pocketed,
-        pos: {
-          x: ball.pos.x + (nb.pos.x - ball.pos.x) * alpha,
-          y: ball.pos.y + (nb.pos.y - ball.pos.y) * alpha
-        },
-        vel: {
-          x: ball.vel.x + (nb.vel.x - ball.vel.x) * alpha,
-          y: ball.vel.y + (nb.vel.y - ball.vel.y) * alpha
-        }
-      };
-    });
-  }, [replay, replayProgress]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -192,13 +162,18 @@ export function GameCanvas({
     const draw = (now: number) => {
       const dpr = Math.min(window.devicePixelRatio || 1, 3);
       const rect = wrap.getBoundingClientRect();
-      canvas.width = Math.floor(rect.width * dpr);
-      canvas.height = Math.floor((rect.width * 0.58) * dpr);
-      canvas.style.height = `${rect.width * 0.58}px`;
+      const logicalHeight = rect.width * 0.58;
+      const nextWidth = Math.floor(rect.width * dpr);
+      const nextHeight = Math.floor(logicalHeight * dpr);
+      if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
+        canvas.width = nextWidth;
+        canvas.height = nextHeight;
+        canvas.style.height = `${logicalHeight}px`;
+      }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       const width = rect.width;
-      const height = rect.width * 0.58;
+      const height = logicalHeight;
       const scale = Math.min(width / state.table.width, height / state.table.height);
       const ox = (width - state.table.width * scale) / 2;
       const oy = (height - state.table.height * scale) / 2;
@@ -459,7 +434,7 @@ export function GameCanvas({
         ctx.stroke();
       }
 
-      const renderBalls = interpolatedReplayBalls ?? state.balls;
+      const renderBalls = sampleReplayBalls(replay, Date.now()) ?? state.balls;
       const poseMap = ballPoseRef.current;
       for (const ball of renderBalls) {
         if (ball.pocketed) continue;
@@ -476,7 +451,7 @@ export function GameCanvas({
           drawStripeBand(ctx, ball, pose, baseColor);
         }
         if (!isCue) {
-          drawSingleSpot(ctx, ball, pose, ball.number);
+          drawNumberSpots(ctx, ball, pose, ball.number);
         }
         drawSpecular(ctx, ball);
       }
@@ -491,7 +466,7 @@ export function GameCanvas({
     state,
     isMyTurn,
     assistStrength,
-    interpolatedReplayBalls,
+    replay,
     displayPower,
     activeCue,
     activeTable,
@@ -717,9 +692,11 @@ function advanceBallPose(pose: BallPose, ball: BallState) {
   const dx = ball.pos.x - pose.x;
   const dy = ball.pos.y - pose.y;
   const dist = Math.hypot(dx, dy);
+  const speed = Math.hypot(ball.vel.x, ball.vel.y);
   pose.x = ball.pos.x;
   pose.y = ball.pos.y;
   if (dist < 1e-4) return;
+  if (speed < 1.4 && dist < 0.06) return;
   if (dist > ball.radius * 2.6) return;
 
   const axis = vec3Norm({ x: -dy, y: dx, z: 0 });
@@ -785,20 +762,25 @@ function drawStripeBand(ctx: CanvasRenderingContext2D, ball: BallState, pose: Ba
   ctx.restore();
 }
 
-function drawSingleSpot(ctx: CanvasRenderingContext2D, ball: BallState, pose: BallPose, number: number) {
-  const front = pose.w.z;
-  if (front < -0.25) return;
+function drawNumberSpots(ctx: CanvasRenderingContext2D, ball: BallState, pose: BallPose, number: number) {
+  drawSpotForNormal(ctx, ball, pose.w, number);
+  drawSpotForNormal(ctx, ball, vec3Scale(pose.w, -1), number);
+}
 
-  const cx = ball.pos.x + pose.w.x * ball.radius * 0.58;
-  const cy = ball.pos.y + pose.w.y * ball.radius * 0.58;
-  const r = Math.max(3.8, ball.radius * (0.22 + Math.max(0, front) * 0.22));
-  const alpha = Math.max(0.22, Math.min(1, (front + 0.25) / 1.25));
+function drawSpotForNormal(ctx: CanvasRenderingContext2D, ball: BallState, normal: Vec3, number: number) {
+  const front = normal.z;
+  if (front < -0.1) return;
+
+  const cx = ball.pos.x + normal.x * ball.radius * 0.56;
+  const cy = ball.pos.y + normal.y * ball.radius * 0.56;
+  const r = Math.max(5.4, ball.radius * (0.3 + Math.max(0, front) * 0.14));
+  const alpha = Math.max(0.58, Math.min(1, (front + 0.1) / 1.1));
 
   ctx.save();
   ctx.globalAlpha = alpha;
-  const spotGrad = ctx.createRadialGradient(cx - r * 0.2, cy - r * 0.2, r * 0.22, cx, cy, r);
-  spotGrad.addColorStop(0, "#fffffd");
-  spotGrad.addColorStop(1, "#ede8d8");
+  const spotGrad = ctx.createRadialGradient(cx - r * 0.2, cy - r * 0.2, r * 0.2, cx, cy, r);
+  spotGrad.addColorStop(0, "#fffef8");
+  spotGrad.addColorStop(1, "#ebe4d0");
   ctx.fillStyle = spotGrad;
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -806,12 +788,12 @@ function drawSingleSpot(ctx: CanvasRenderingContext2D, ball: BallState, pose: Ba
 
   // Keep glyph upright on screen for readability while the spot itself follows 3D roll.
   ctx.translate(cx, cy);
-  ctx.fillStyle = "#11161f";
-  ctx.strokeStyle = "rgba(255,255,255,0.65)";
-  ctx.lineWidth = Math.max(0.8, r * 0.08);
+  ctx.fillStyle = "#0f141d";
+  ctx.strokeStyle = "rgba(255,255,255,0.78)";
+  ctx.lineWidth = Math.max(0.95, r * 0.1);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `700 ${Math.max(9.5, r * 1.3)}px sans-serif`;
+  ctx.font = `800 ${Math.max(10.5, r * 1.24)}px sans-serif`;
   ctx.strokeText(String(number), 0, 0.2);
   ctx.fillText(String(number), 0, 0.2);
   ctx.restore();
@@ -937,6 +919,38 @@ function brighten(hex: string, amount: number): string {
 
 function darken(hex: string, amount: number): string {
   return adjustHex(hex, -Math.abs(amount));
+}
+
+function sampleReplayBalls(
+  replay: { frames: BallState[][]; fps: number; startAtMs?: number } | null,
+  nowMs: number
+): BallState[] | null {
+  if (!replay || replay.frames.length === 0) return null;
+  const startAtMs = replay.startAtMs ?? nowMs;
+  const frameDurationMs = 1000 / Math.max(1, replay.fps);
+  const progress = Math.max(0, Math.min(replay.frames.length - 1, (nowMs - startAtMs) / frameDurationMs));
+  const base = Math.floor(progress);
+  const next = Math.min(replay.frames.length - 1, base + 1);
+  const alpha = Math.max(0, Math.min(1, progress - base));
+  const a = replay.frames[base] ?? replay.frames[0];
+  const b = replay.frames[next] ?? a;
+  if (!a || !b) return null;
+
+  return a.map((ball, idx) => {
+    const nb = b[idx] ?? ball;
+    return {
+      ...ball,
+      pocketed: nb.pocketed,
+      pos: {
+        x: ball.pos.x + (nb.pos.x - ball.pos.x) * alpha,
+        y: ball.pos.y + (nb.pos.y - ball.pos.y) * alpha
+      },
+      vel: {
+        x: ball.vel.x + (nb.vel.x - ball.vel.x) * alpha,
+        y: ball.vel.y + (nb.vel.y - ball.vel.y) * alpha
+      }
+    };
+  });
 }
 
 function predictFirstCollision(

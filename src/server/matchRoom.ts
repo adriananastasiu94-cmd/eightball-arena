@@ -3,6 +3,7 @@ import { MatchState, PlayerState, ShotInput, ShotOutcome } from "@/game/types";
 import { applyCueImpulse, simulateShot } from "@/game/physics/engine";
 import { applyOutcomeToTurn, adjudicateShot } from "@/game/rules/eightBallRules";
 import { createMatchState } from "@/game/state";
+import { PHYSICS } from "@/game/constants";
 import { prisma } from "@/lib/prisma";
 import { grantFallbackCoins } from "@/lib/fallbackWallet";
 
@@ -220,16 +221,21 @@ export class MatchRoom {
     // Authoritative flow: validate -> simulate -> adjudicate rules -> broadcast one true state.
     const ballsAfterImpulse = applyCueImpulse(this.state.balls, shot.angle, shot.power, shot.spin);
     const sim = simulateShot(this.state.table, ballsAfterImpulse);
-    const maxReplayFrames = 90;
-    const sampleStep = Math.max(10, Math.ceil(sim.frames.length / maxReplayFrames));
-    const replayFps = Math.max(16, Math.round(120 / sampleStep));
+    const maxReplayFrames = 160;
+    const targetReplayFps = 24;
+    const baseSampleStep = Math.max(1, Math.round(PHYSICS.stepHz / targetReplayFps));
+    const sampledFrameCount = Math.ceil(sim.frames.length / baseSampleStep);
+    const compressionStep = Math.max(1, Math.ceil(sampledFrameCount / maxReplayFrames));
+    const sampleStep = baseSampleStep * compressionStep;
+    const replayFps = Math.max(14, Math.round(PHYSICS.stepHz / sampleStep));
+    const round3 = (value: number) => Math.round(value * 1000) / 1000;
     const replayFrames = sim.frames
       .filter((_, idx) => idx % sampleStep === 0 || idx === sim.frames.length - 1)
       .map((frame) =>
         frame.map((b) => ({
           ...b,
-          pos: { x: Math.round(b.pos.x * 100) / 100, y: Math.round(b.pos.y * 100) / 100 },
-          vel: { x: Math.round(b.vel.x * 100) / 100, y: Math.round(b.vel.y * 100) / 100 }
+          pos: { x: round3(b.pos.x), y: round3(b.pos.y) },
+          vel: { x: round3(b.vel.x), y: round3(b.vel.y) }
         }))
       );
     const replayDurationMs = Math.max(300, Math.round((replayFrames.length / replayFps) * 1000));
@@ -257,6 +263,18 @@ export class MatchRoom {
         const cue = frame.find((b) => b.kind === "cue");
         return cue ? { i: idx, x: cue.pos.x, y: cue.pos.y, vx: cue.vel.x, vy: cue.vel.y } : null;
       }).filter((v): v is { i: number; x: number; y: number; vx: number; vy: number } => Boolean(v));
+      const includeAllBalls = process.env.ARENA_REPLAY_TRACE_BALLS === "1";
+      const ballTrace = includeAllBalls
+        ? replayFrames.map((frame, idx) => ({
+            i: idx,
+            balls: frame.map((b) => ({
+              id: b.id,
+              x: b.pos.x,
+              y: b.pos.y,
+              p: b.pocketed ? 1 : 0
+            }))
+          }))
+        : undefined;
       console.info(
         "[arena-replay]",
         JSON.stringify({
@@ -267,7 +285,8 @@ export class MatchRoom {
           fps: replayFps,
           durationMs: replayDurationMs,
           events: sim.events.length,
-          cueTrack
+          cueTrack,
+          ballTrace
         })
       );
     }
@@ -287,7 +306,6 @@ export class MatchRoom {
       forceStartTimer: null,
       started: false
     };
-    this.state.lastOutcome = outcome;
 
     this.io.to(this.id).emit("match:replay-payload", {
       replayId,
@@ -296,10 +314,9 @@ export class MatchRoom {
       durationMs: replayDurationMs,
       shotCount: nextShotCount
     });
-    this.broadcastState();
     this.pendingReplay.forceStartTimer = setTimeout(() => {
       this.startPendingReplay("timeout");
-    }, 650);
+    }, 1800);
   }
 
   private startPendingReplay(reason: "all_ready" | "timeout"): void {
@@ -311,7 +328,7 @@ export class MatchRoom {
       pending.forceStartTimer = null;
     }
 
-    const replayStartLagMs = 140;
+    const replayStartLagMs = 90;
     const serverNowMs = Date.now();
     const serverStartMs = serverNowMs + replayStartLagMs;
     this.io.to(this.id).emit("match:replay-start", {
