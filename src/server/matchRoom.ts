@@ -39,6 +39,7 @@ export class MatchRoom {
   private disconnectTimers = new Map<string, NodeJS.Timeout>();
   private shotUnlockTimer: NodeJS.Timeout | null = null;
   private shotClockTimer: NodeJS.Timeout | null = null;
+  private pendingFinish: { winnerUserId: string | null; reason: string } | null = null;
   private readonly shotClockMs = 30000;
   private lastCueBroadcastAt = 0;
   private lastCueBroadcastPos: { x: number; y: number } | null = null;
@@ -192,8 +193,9 @@ export class MatchRoom {
       .filter((_, idx) => idx % sampleStep === 0 || idx === sim.frames.length - 1)
       .map((frame) => frame.map((b) => ({ ...b, pos: { ...b.pos }, vel: { ...b.vel } })));
     const replayDurationMs = Math.max(300, Math.round((replayFrames.length / replayFps) * 1000));
-    const replayStartLagMs = 140;
-    const replayServerStartMs = Date.now() + replayStartLagMs;
+    const replayStartLagMs = 220;
+    const replayServerNowMs = Date.now();
+    const replayServerStartMs = replayServerNowMs + replayStartLagMs;
 
     const pocketed = sim.events.filter((e) => e.type === "pocket").map((e) => e.ballId);
     const firstContactEvent = sim.events.find((e) => e.type === "first_contact") as { targetBallId: number } | undefined;
@@ -215,19 +217,27 @@ export class MatchRoom {
       fps: replayFps,
       durationMs: replayDurationMs,
       shotCount: this.state.shotCount,
-      serverStartMs: replayServerStartMs
+      serverStartMs: replayServerStartMs,
+      serverNowMs: replayServerNowMs
     });
-    this.broadcastState();
-    this.scheduleShotUnlock(replayDurationMs + replayStartLagMs);
-
     if (outcome.winnerUserId) {
-      this.finish(outcome.winnerUserId, outcome.legalEight ? "8_ball" : "foul_on_8");
+      this.pendingFinish = {
+        winnerUserId: outcome.winnerUserId,
+        reason: outcome.legalEight ? "8_ball" : "foul_on_8"
+      };
     }
+    this.scheduleShotUnlock(replayDurationMs + replayStartLagMs);
   }
 
   private scheduleShotUnlock(delayMs: number): void {
     if (this.shotUnlockTimer) clearTimeout(this.shotUnlockTimer);
     this.shotUnlockTimer = setTimeout(() => {
+      const pending = this.pendingFinish;
+      if (pending) {
+        this.pendingFinish = null;
+        void this.finish(pending.winnerUserId, pending.reason);
+        return;
+      }
       this.state.shotInProgress = false;
       this.resetTurnDeadline();
       this.broadcastState();

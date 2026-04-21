@@ -54,11 +54,8 @@ export function useArenaSocket(enabled: boolean) {
       setState(nextState);
       if (typeof serverTime === "number") {
         const rawOffset = serverTime - Date.now();
-        setServerOffsetMs((prev) => {
-          const next = prev * 0.75 + rawOffset * 0.25;
-          serverOffsetRef.current = next;
-          return next;
-        });
+        serverOffsetRef.current = rawOffset;
+        setServerOffsetMs(rawOffset);
       }
       if (!nextState.shotInProgress) {
         shotPendingRef.current = false;
@@ -75,11 +72,12 @@ export function useArenaSocket(enabled: boolean) {
         typeof payload.durationMs === "number"
           ? payload.durationMs
           : Math.max(300, Math.round((payload.frames.length / Math.max(1, payload.fps)) * 1000));
-      const localStartAtMs =
+      const estimatedLocalStartAtMs =
         typeof payload.serverStartMs === "number"
           ? payload.serverStartMs - serverOffsetRef.current
           : Date.now();
-      const startupDelayMs = Math.max(0, Math.round(localStartAtMs - Date.now()));
+      const startupDelayMs = Math.max(0, Math.min(300, Math.round(estimatedLocalStartAtMs - Date.now())));
+      const localStartAtMs = Date.now() + startupDelayMs;
 
       setReplay({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

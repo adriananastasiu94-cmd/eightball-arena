@@ -323,7 +323,7 @@ function resolvePocket(ball: BallState, table: TableConfig): boolean {
 export function simulateShot(
   table: TableConfig,
   initialBalls: BallState[],
-  maxSeconds = 12
+  maxSeconds = 9
 ): SimulationResult {
   const balls = cloneBalls(initialBalls);
   const frames: BallState[][] = [];

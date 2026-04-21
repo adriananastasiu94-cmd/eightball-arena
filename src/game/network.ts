@@ -20,6 +20,7 @@ export type ServerToClientEvents = {
     durationMs?: number;
     shotCount?: number;
     serverStartMs?: number;
+    serverNowMs?: number;
   }) => void;
   "match:presence": (payload: { userId: string; active: boolean; angle: number; power: number; t: number }) => void;
   "match:shot-rejected": (payload: { reason: string }) => void;

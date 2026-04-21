@@ -787,11 +787,11 @@ function drawStripeBand(ctx: CanvasRenderingContext2D, ball: BallState, pose: Ba
 
 function drawSingleSpot(ctx: CanvasRenderingContext2D, ball: BallState, pose: BallPose, number: number) {
   const front = pose.w.z;
-  if (front < 0.07) return;
+  if (front < 0.02) return;
 
   const cx = ball.pos.x + pose.w.x * ball.radius * 0.58;
   const cy = ball.pos.y + pose.w.y * ball.radius * 0.58;
-  const r = Math.max(2.4, ball.radius * (0.14 + front * 0.2));
+  const r = Math.max(3.2, ball.radius * (0.19 + front * 0.21));
 
   const spotGrad = ctx.createRadialGradient(cx - r * 0.2, cy - r * 0.2, r * 0.22, cx, cy, r);
   spotGrad.addColorStop(0, "#fffffd");
@@ -808,9 +808,12 @@ function drawSingleSpot(ctx: CanvasRenderingContext2D, ball: BallState, pose: Ba
   ctx.translate(cx, cy);
   ctx.rotate(labelAngle);
   ctx.fillStyle = "#11161f";
+  ctx.strokeStyle = "rgba(255,255,255,0.65)";
+  ctx.lineWidth = Math.max(0.8, r * 0.08);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `${Math.max(7, r * 1.16)}px sans-serif`;
+  ctx.font = `${Math.max(8.5, r * 1.22)}px sans-serif`;
+  ctx.strokeText(String(number), 0, 0.2);
   ctx.fillText(String(number), 0, 0.2);
   ctx.restore();
 }
