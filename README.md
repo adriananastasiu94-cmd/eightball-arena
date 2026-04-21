@@ -77,6 +77,32 @@ To set all existing users to `100000` coins and `100000` cash:
 
 The script creates missing `PlayerStats` rows first, then force-updates all existing stats.
 
+## Admin coin grant from browser console
+
+Set `ADMIN_COIN_GRANT_EMAILS` in the arena service environment (comma-separated admin emails).
+
+Then, while logged in as one of those admin emails, run this once in browser devtools console:
+
+```js
+window.grantCoinsByEmail = async (email, amount) => {
+  const response = await fetch("/api/admin/grant-coins", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, amount })
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data?.error || "Grant failed");
+  console.log("Grant success:", data);
+  return data;
+};
+```
+
+Usage example:
+
+```js
+await window.grantCoinsByEmail("player@example.com", 5000);
+```
+
 ## Production build
 
 - `npm run build`
