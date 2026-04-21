@@ -58,6 +58,7 @@ export class MatchRoom {
       {
         userId: players[0].userId,
         username: players[0].username,
+        avatarUrl: players[0].avatarUrl,
         group: null,
         wins: 0,
         profile: { wins: 0, losses: 0, matchesPlayed: 0, level: 1, region: "Global" }
@@ -65,6 +66,7 @@ export class MatchRoom {
       {
         userId: players[1].userId,
         username: players[1].username,
+        avatarUrl: players[1].avatarUrl,
         group: null,
         wins: 0,
         profile: { wins: 0, losses: 0, matchesPlayed: 0, level: 1, region: "Global" }
@@ -413,6 +415,7 @@ export class MatchRoom {
       const user = byChatId.get(p.userId);
       return {
         ...p,
+        avatarUrl: user?.avatarUrl ?? p.avatarUrl ?? null,
         profile: {
           wins: user?.playerStats?.wins ?? 0,
           losses: user?.playerStats?.losses ?? 0,

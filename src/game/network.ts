@@ -10,6 +10,7 @@ export type ClientToServerEvents = {
 };
 
 export type ServerToClientEvents = {
+  "session:ready": (payload: { userId: string }) => void;
   "queue:status": (payload: { inQueue: boolean; eta: number | null }) => void;
   "match:found": (payload: { matchId: string; opponent: { username: string; avatarUrl: string | null } }) => void;
   "match:state": (payload: { state: MatchState; serverTime: number }) => void;

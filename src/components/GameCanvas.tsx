@@ -194,7 +194,7 @@ export function GameCanvas({
       const oy = (height - state.table.height * scale) / 2;
       const liveAim = aimRef.current;
       const remoteAim =
-        remotePresence && now - remotePresence.t < 900 ? remotePresence : null;
+        remotePresence && Date.now() - remotePresence.t < 900 ? remotePresence : null;
 
       ctx.clearRect(0, 0, width, height);
 

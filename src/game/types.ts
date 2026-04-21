@@ -17,6 +17,7 @@ export type PlayerGroup = "solids" | "stripes" | null;
 export type PlayerState = {
   userId: string;
   username: string;
+  avatarUrl?: string | null;
   group: PlayerGroup;
   wins: number;
   profile?: {

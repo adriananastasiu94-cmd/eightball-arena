@@ -9,6 +9,7 @@ type PresencePayload = { userId: string; active: boolean; angle: number; power: 
 
 export function useArenaSocket(enabled: boolean) {
   const [queue, setQueue] = useState<QueueStatus>({ inQueue: false, eta: null });
+  const [selfUserId, setSelfUserId] = useState<string | null>(null);
   const [state, setState] = useState<MatchState | null>(null);
   const [matchFound, setMatchFound] = useState(false);
   const [result, setResult] = useState<{ winnerUserId: string | null; reason: string } | null>(null);
@@ -33,6 +34,11 @@ export function useArenaSocket(enabled: boolean) {
     });
 
     socket.on("queue:status", setQueue);
+    socket.on("session:ready", ({ userId }) => {
+      if (typeof userId === "string" && userId.length > 0) {
+        setSelfUserId(userId);
+      }
+    });
     socket.on("match:found", () => {
       setMatchFound(true);
       setResult(null);
@@ -117,6 +123,7 @@ export function useArenaSocket(enabled: boolean) {
   const api = useMemo(
     () => ({
       queue,
+      selfUserId,
       state,
       matchFound,
       result,
@@ -161,6 +168,7 @@ export function useArenaSocket(enabled: boolean) {
       shotError,
       isShotPending,
       serverOffsetMs,
+      selfUserId,
       presenceByUser
     ]
   );

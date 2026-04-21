@@ -102,7 +102,7 @@ const BOT_CONFIG: Record<BotDifficulty, BotDifficultyConfig> = {
   normal: {
     label: "Normal",
     reward: 2,
-    xpReward: 5,
+    xpReward: 2,
     jitter: 0.24,
     powerMin: 0.32,
     powerMax: 0.72,
@@ -112,7 +112,7 @@ const BOT_CONFIG: Record<BotDifficulty, BotDifficultyConfig> = {
   hard: {
     label: "Hard",
     reward: 5,
-    xpReward: 25,
+    xpReward: 5,
     jitter: 0.14,
     powerMin: 0.36,
     powerMax: 0.84,
@@ -122,7 +122,7 @@ const BOT_CONFIG: Record<BotDifficulty, BotDifficultyConfig> = {
   pro: {
     label: "Pro",
     reward: 10,
-    xpReward: 100,
+    xpReward: 10,
     jitter: 0.08,
     powerMin: 0.42,
     powerMax: 0.95,
@@ -157,15 +157,16 @@ export default function HomePage() {
   const [menuNotice, setMenuNotice] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const socket = useArenaSocket(Boolean(me) && mode === "online");
+  const myLiveUserId = socket.selfUserId ?? me?.id ?? null;
   const opponentPresence = useMemo(() => {
-    if (!me) return null;
+    if (!myLiveUserId) return null;
     const all = Object.values(socket.presenceByUser ?? {});
     if (all.length === 0) return null;
     const latest = all
-      .filter((p) => p.userId !== me.id)
+      .filter((p) => p.userId !== myLiveUserId)
       .sort((a, b) => b.t - a.t)[0];
     return latest ?? null;
-  }, [socket.presenceByUser, me]);
+  }, [socket.presenceByUser, myLiveUserId]);
 
   useEffect(() => {
     const cached = window.localStorage.getItem(SESSION_CACHE_KEY);
@@ -220,6 +221,7 @@ export default function HomePage() {
       {
         userId: me.id,
         username: me.username,
+        avatarUrl: me.avatarUrl ?? null,
         group: null,
         wins: 0,
         profile: {
@@ -233,6 +235,7 @@ export default function HomePage() {
       {
         userId: sandboxSession.opponentId,
         username: sandboxSession.opponentName,
+        avatarUrl: null,
         group: null,
         wins: 0,
         profile: {
@@ -1085,7 +1088,7 @@ export default function HomePage() {
 
           <GameCanvas
             state={currentState}
-            myUserId={me.id}
+            myUserId={myLiveUserId}
             onShoot={onShoot}
             onPlaceCue={onPlaceCue}
             assistStrength={assistStrength}
@@ -1168,7 +1171,7 @@ export default function HomePage() {
 
         {socket.result && (
           <div className="mt-4 rounded-xl border border-white/10 bg-black/30 p-3 text-white">
-            <div className="font-semibold">{socket.result.winnerUserId === me.id ? "Victory" : "Defeat"}</div>
+            <div className="font-semibold">{socket.result.winnerUserId === (myLiveUserId ?? me.id) ? "Victory" : "Defeat"}</div>
             <div className="text-sm text-white/70">Reason: {socket.result.reason}</div>
           </div>
         )}
@@ -1589,8 +1592,23 @@ function PlayerProfileCard({
     >
       <div className={`rounded-lg border px-3 py-2 text-sm ${isActive ? "border-cyan-300/50 bg-cyan-500/10 text-cyan-100" : "border-white/10 bg-white/5 text-white/85"}`}>
         <div className="flex items-center justify-between gap-2">
-          <div className="font-semibold">
-            {player.username} ({group})
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="h-9 w-9 overflow-hidden rounded-full border border-white/30 bg-white/10">
+              {player.avatarUrl ? (
+                <div
+                  aria-label={player.username}
+                  className="h-full w-full bg-cover bg-center bg-no-repeat"
+                  style={{ backgroundImage: `url(${player.avatarUrl})` }}
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-xs font-bold text-white/90">
+                  {(player.username || "?").slice(0, 1).toUpperCase()}
+                </div>
+              )}
+            </div>
+            <div className="truncate font-semibold">
+              {player.username} ({group})
+            </div>
           </div>
           <div className="text-[11px] text-white/75">Clock: {isActive ? `${remainingSec}s` : "30s"}</div>
         </div>
