@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { chatMe } from "@/lib/chatAuth";
 import { prisma } from "@/lib/prisma";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 const grantCoinsSchema = z.object({
   email: z.string().email(),
@@ -23,23 +23,52 @@ function sanitizeUsername(value: string): string {
   return clean.length > 0 ? clean : "arena_player";
 }
 
-async function buildUniqueUsername(
-  tx: Omit<
-    PrismaClient,
-    "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
-  >,
-  preferred: string
-): Promise<string> {
+async function buildUniqueUsername(preferred: string): Promise<string> {
   const base = sanitizeUsername(preferred);
   for (let i = 0; i < 2000; i += 1) {
     const candidate = i === 0 ? base : `${base}_${i}`;
-    const existing = await tx.user.findUnique({
+    const existing = await prisma.user.findUnique({
       where: { username: candidate },
       select: { id: true }
     });
     if (!existing) return candidate;
   }
   return `arena_${Date.now()}`;
+}
+
+async function findUserByEmail(email: string) {
+  return prisma.user.findFirst({
+    where: {
+      email: {
+        equals: email,
+        mode: "insensitive"
+      }
+    },
+    select: { id: true, email: true, username: true }
+  });
+}
+
+async function ensureArenaUserByEmail(targetEmail: string) {
+  const normalized = targetEmail.toLowerCase();
+  let user = await findUserByEmail(normalized);
+  if (user) return user;
+
+  const username = await buildUniqueUsername(normalized.split("@")[0]);
+  try {
+    return await prisma.user.create({
+      data: {
+        email: normalized,
+        username
+      },
+      select: { id: true, email: true, username: true }
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      user = await findUserByEmail(normalized);
+      if (user) return user;
+    }
+    throw error;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -68,60 +97,35 @@ export async function POST(request: NextRequest) {
   const amount = parsed.data.amount;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      let user = await tx.user.findFirst({
-        where: {
-          email: {
-            equals: targetEmail,
-            mode: "insensitive"
-          }
-        },
-        select: { id: true, email: true, username: true }
-      });
-      if (!user) {
-        const username = await buildUniqueUsername(tx, targetEmail.split("@")[0]);
-        user = await tx.user.create({
-          data: {
-            email: targetEmail.toLowerCase(),
-            username
-          },
-          select: { id: true, email: true, username: true }
-        });
-      }
+    const user = await ensureArenaUserByEmail(targetEmail);
 
-      await tx.playerStats.upsert({
-        where: { userId: user.id },
-        update: {},
-        create: { userId: user.id }
-      });
+    await prisma.playerStats.upsert({
+      where: { userId: user.id },
+      update: {},
+      create: { userId: user.id }
+    });
 
-      const updatedStats = await tx.playerStats.update({
-        where: { userId: user.id },
-        data: { coins: { increment: amount } },
-        select: { coins: true, cash: true }
-      });
-
-      return {
-        user,
-        coins: updatedStats.coins,
-        cash: updatedStats.cash
-      };
+    const updatedStats = await prisma.playerStats.update({
+      where: { userId: user.id },
+      data: { coins: { increment: amount } },
+      select: { coins: true, cash: true }
     });
 
     return NextResponse.json({
       ok: true,
       grantedBy: actor.email,
       target: {
-        email: result.user.email,
-        username: result.user.username
+        email: user.email,
+        username: user.username
       },
       amountGranted: amount,
       balances: {
-        coins: result.coins,
-        cash: result.cash
+        coins: updatedStats.coins,
+        cash: updatedStats.cash
       }
     });
   } catch (error) {
+    console.error("admin:grant-coins failed", error);
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       return NextResponse.json(
         { error: "Unable to grant coins right now", code: error.code },
