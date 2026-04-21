@@ -14,6 +14,19 @@ type ConnectedPlayer = {
   socketId: string;
 };
 
+type PendingReplay = {
+  replayId: string;
+  frames: MatchState["balls"][];
+  fps: number;
+  durationMs: number;
+  shotCount: number;
+  outcome: ShotOutcome;
+  winnerReason: string | null;
+  readyUsers: Set<string>;
+  forceStartTimer: NodeJS.Timeout | null;
+  started: boolean;
+};
+
 function canPlaceCueAt(state: MatchState, x: number, y: number): boolean {
   const cue = state.balls.find((b) => b.kind === "cue");
   if (!cue) return false;
@@ -39,7 +52,7 @@ export class MatchRoom {
   private disconnectTimers = new Map<string, NodeJS.Timeout>();
   private shotUnlockTimer: NodeJS.Timeout | null = null;
   private shotClockTimer: NodeJS.Timeout | null = null;
-  private pendingResolution: { outcome: ShotOutcome; winnerReason: string | null } | null = null;
+  private pendingReplay: PendingReplay | null = null;
   private readonly shotClockMs = 30000;
   private lastCueBroadcastAt = 0;
   private lastCueBroadcastPos: { x: number; y: number } | null = null;
@@ -159,6 +172,27 @@ export class MatchRoom {
     });
   }
 
+  handleReplayReady(userId: string, replayId: string): void {
+    if (!this.socketsByUser.has(userId)) return;
+    const pending = this.pendingReplay;
+    if (!pending || pending.replayId !== replayId || pending.started) return;
+    pending.readyUsers.add(userId);
+    if (process.env.ARENA_REPLAY_DEBUG === "1") {
+      console.info(
+        "[arena-replay-ready]",
+        JSON.stringify({
+          roomId: this.id,
+          replayId,
+          userId,
+          readyUsers: [...pending.readyUsers]
+        })
+      );
+    }
+    if (pending.readyUsers.size >= 2) {
+      this.startPendingReplay("all_ready");
+    }
+  }
+
   handleShot(userId: string, shot: ShotInput): void {
     if (this.state.phase === "round_end") return;
     if (this.state.shotInProgress) {
@@ -186,9 +220,9 @@ export class MatchRoom {
     // Authoritative flow: validate -> simulate -> adjudicate rules -> broadcast one true state.
     const ballsAfterImpulse = applyCueImpulse(this.state.balls, shot.angle, shot.power, shot.spin);
     const sim = simulateShot(this.state.table, ballsAfterImpulse);
-    const maxReplayFrames = 110;
-    const sampleStep = Math.max(8, Math.ceil(sim.frames.length / maxReplayFrames));
-    const replayFps = Math.max(14, Math.round(120 / sampleStep));
+    const maxReplayFrames = 90;
+    const sampleStep = Math.max(10, Math.ceil(sim.frames.length / maxReplayFrames));
+    const replayFps = Math.max(16, Math.round(120 / sampleStep));
     const replayFrames = sim.frames
       .filter((_, idx) => idx % sampleStep === 0 || idx === sim.frames.length - 1)
       .map((frame) =>
@@ -199,9 +233,8 @@ export class MatchRoom {
         }))
       );
     const replayDurationMs = Math.max(300, Math.round((replayFrames.length / replayFps) * 1000));
-    const replayStartLagMs = 180;
-    const replayServerNowMs = Date.now();
-    const replayServerStartMs = replayServerNowMs + replayStartLagMs;
+    const nextShotCount = this.state.shotCount + 1;
+    const replayId = `${nextShotCount}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
     const pocketed = sim.events.filter((e) => e.type === "pocket").map((e) => e.ballId);
     const firstContactEvent = sim.events.find((e) => e.type === "first_contact") as { targetBallId: number } | undefined;
@@ -216,29 +249,101 @@ export class MatchRoom {
       cushionHits,
       isBreakShot: !this.state.breakDone
     });
-    this.pendingResolution = {
-      outcome,
-      winnerReason: outcome.winnerUserId ? (outcome.legalEight ? "8_ball" : "foul_on_8") : null
-    };
-    this.state.lastOutcome = outcome;
+    const winnerReason = outcome.winnerUserId ? (outcome.legalEight ? "8_ball" : "foul_on_8") : null;
 
-    this.io.to(this.id).emit("match:replay", {
+    const debugEnabled = process.env.ARENA_REPLAY_DEBUG === "1";
+    if (debugEnabled) {
+      const cueTrack = replayFrames.map((frame, idx) => {
+        const cue = frame.find((b) => b.kind === "cue");
+        return cue ? { i: idx, x: cue.pos.x, y: cue.pos.y, vx: cue.vel.x, vy: cue.vel.y } : null;
+      }).filter((v): v is { i: number; x: number; y: number; vx: number; vy: number } => Boolean(v));
+      console.info(
+        "[arena-replay]",
+        JSON.stringify({
+          roomId: this.id,
+          replayId,
+          shotCount: nextShotCount,
+          frames: replayFrames.length,
+          fps: replayFps,
+          durationMs: replayDurationMs,
+          events: sim.events.length,
+          cueTrack
+        })
+      );
+    }
+
+    if (this.pendingReplay?.forceStartTimer) {
+      clearTimeout(this.pendingReplay.forceStartTimer);
+    }
+    this.pendingReplay = {
+      replayId,
       frames: replayFrames,
       fps: replayFps,
       durationMs: replayDurationMs,
-      shotCount: this.state.shotCount + 1,
-      serverStartMs: replayServerStartMs,
-      serverNowMs: replayServerNowMs
+      shotCount: nextShotCount,
+      outcome,
+      winnerReason,
+      readyUsers: new Set<string>(),
+      forceStartTimer: null,
+      started: false
+    };
+    this.state.lastOutcome = outcome;
+
+    this.io.to(this.id).emit("match:replay-payload", {
+      replayId,
+      frames: replayFrames,
+      fps: replayFps,
+      durationMs: replayDurationMs,
+      shotCount: nextShotCount
     });
     this.broadcastState();
-    this.scheduleShotUnlock(replayDurationMs + replayStartLagMs);
+    this.pendingReplay.forceStartTimer = setTimeout(() => {
+      this.startPendingReplay("timeout");
+    }, 650);
   }
 
-  private scheduleShotUnlock(delayMs: number): void {
+  private startPendingReplay(reason: "all_ready" | "timeout"): void {
+    const pending = this.pendingReplay;
+    if (!pending || pending.started) return;
+    pending.started = true;
+    if (pending.forceStartTimer) {
+      clearTimeout(pending.forceStartTimer);
+      pending.forceStartTimer = null;
+    }
+
+    const replayStartLagMs = 140;
+    const serverNowMs = Date.now();
+    const serverStartMs = serverNowMs + replayStartLagMs;
+    this.io.to(this.id).emit("match:replay-start", {
+      replayId: pending.replayId,
+      durationMs: pending.durationMs,
+      serverStartMs,
+      serverNowMs
+    });
+
+    if (process.env.ARENA_REPLAY_DEBUG === "1") {
+      console.info(
+        "[arena-replay-start]",
+        JSON.stringify({
+          roomId: this.id,
+          replayId: pending.replayId,
+          reason,
+          readyUsers: [...pending.readyUsers],
+          durationMs: pending.durationMs,
+          startLagMs: replayStartLagMs
+        })
+      );
+    }
+
+    this.scheduleShotUnlock(pending.replayId, pending.durationMs + replayStartLagMs);
+  }
+
+  private scheduleShotUnlock(replayId: string, delayMs: number): void {
     if (this.shotUnlockTimer) clearTimeout(this.shotUnlockTimer);
     this.shotUnlockTimer = setTimeout(() => {
-      const pending = this.pendingResolution;
-      this.pendingResolution = null;
+      const pending = this.pendingReplay;
+      if (!pending || pending.replayId !== replayId) return;
+      this.pendingReplay = null;
       if (pending) {
         applyOutcomeToTurn(this.state, pending.outcome);
         if (pending.outcome.winnerUserId) {
@@ -253,7 +358,10 @@ export class MatchRoom {
   }
 
   private async finish(winnerUserId: string | null, reason: string) {
-    this.pendingResolution = null;
+    if (this.pendingReplay?.forceStartTimer) {
+      clearTimeout(this.pendingReplay.forceStartTimer);
+    }
+    this.pendingReplay = null;
     this.clearShotClockTimer();
     if (this.shotUnlockTimer) {
       clearTimeout(this.shotUnlockTimer);
@@ -354,7 +462,10 @@ export class MatchRoom {
   handleRematch(userId: string): void {
     this.rematchVotes.add(userId);
     if (this.rematchVotes.size === 2) {
-      this.pendingResolution = null;
+      if (this.pendingReplay?.forceStartTimer) {
+        clearTimeout(this.pendingReplay.forceStartTimer);
+      }
+      this.pendingReplay = null;
       const players: [PlayerState, PlayerState] = [
         { ...this.state.players[0], group: null },
         { ...this.state.players[1], group: null }

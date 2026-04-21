@@ -6,6 +6,7 @@ export type ClientToServerEvents = {
   "match:shot": (payload: ShotInput) => void;
   "match:ball-in-hand": (payload: { x: number; y: number }) => void;
   "match:presence": (payload: { active: boolean; angle: number; power: number }) => void;
+  "match:replay-ready": (payload: { replayId: string }) => void;
   "match:rematch": () => void;
 };
 
@@ -14,11 +15,16 @@ export type ServerToClientEvents = {
   "queue:status": (payload: { inQueue: boolean; eta: number | null }) => void;
   "match:found": (payload: { matchId: string; opponent: { username: string; avatarUrl: string | null } }) => void;
   "match:state": (payload: { state: MatchState; serverTime: number }) => void;
-  "match:replay": (payload: {
+  "match:replay-payload": (payload: {
+    replayId: string;
     frames: MatchState["balls"][];
     fps: number;
     durationMs?: number;
     shotCount?: number;
+  }) => void;
+  "match:replay-start": (payload: {
+    replayId: string;
+    durationMs: number;
     serverStartMs?: number;
     serverNowMs?: number;
   }) => void;

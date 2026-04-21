@@ -100,6 +100,13 @@ export function createSocketServer(httpServer: HttpServer) {
       room.handlePresence(user.userId, payload);
     });
 
+    socket.on("match:replay-ready", (payload) => {
+      const room = matchmaker.findRoomByUser(user.userId);
+      if (!room) return;
+      if (!payload || typeof payload.replayId !== "string" || payload.replayId.length < 3) return;
+      room.handleReplayReady(user.userId, payload.replayId);
+    });
+
     socket.on("match:rematch", () => {
       const room = matchmaker.findRoomByUser(user.userId);
       if (!room) return;
