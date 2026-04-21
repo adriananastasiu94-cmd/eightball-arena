@@ -121,6 +121,16 @@ One-time setup:
    - Value: your Render deploy hook URL
 3. Push to `main` (or run the workflow manually from Actions tab).
 
+## Shared DB on Render (ChordChat ecosystem)
+
+To run Arena against your shared ChordChat Postgres on Render:
+
+1. Open Render service `eightball-arena-web` -> `Environment`.
+2. Set `DATABASE_URL` to the shared ChordChat Postgres connection string.
+3. Redeploy Arena.
+
+`render.yaml` is configured with `DATABASE_URL` as `sync: false`, so Arena expects you to provide this value explicitly in Render.
+
 ## Physics loop details
 
 `src/game/physics/engine.ts` uses a deterministic fixed-step loop at `PHYSICS.stepHz`.

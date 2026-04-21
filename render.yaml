@@ -14,12 +14,4 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_URL
-        fromDatabase:
-          name: eightball-arena-db
-          property: connectionString
-
-databases:
-  - name: eightball-arena-db
-    plan: free
-    databaseName: eightball_arena
-    user: arena_user
+        sync: false
