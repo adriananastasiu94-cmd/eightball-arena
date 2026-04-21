@@ -37,6 +37,7 @@ export function createSocketServer(httpServer: HttpServer) {
 
     socket.data.user = {
       userId: user.id,
+      email: user.email,
       username: user.username,
       avatarUrl: user.avatarUrl ?? null
     };
@@ -44,7 +45,7 @@ export function createSocketServer(httpServer: HttpServer) {
   });
 
   io.on("connection", (socket) => {
-    const user = socket.data.user as { userId: string; username: string; avatarUrl: string | null };
+    const user = socket.data.user as { userId: string; email: string; username: string; avatarUrl: string | null };
     matchmaker.reconnectInRoom(user.userId, socket.id);
 
     socket.emit("queue:status", matchmaker.status(user.userId));

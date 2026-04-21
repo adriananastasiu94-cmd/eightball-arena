@@ -1,12 +1,14 @@
 import { Server } from "socket.io";
 import { MatchRoom } from "./matchRoom";
 import { prisma } from "@/lib/prisma";
+import { debitFallbackCoins, grantFallbackCoins } from "@/lib/fallbackWallet";
 
 const ALLOWED_STAKES = [1, 2, 3, 5, 10, 25, 50, 100] as const;
 export type StakeValue = (typeof ALLOWED_STAKES)[number];
 
 type QueueUser = {
   userId: string;
+  email: string;
   username: string;
   avatarUrl: string | null;
   socketId: string;
@@ -69,6 +71,10 @@ export class Matchmaker {
     if (!charged.ok) {
       if (charged.insufficientUserId === p1.userId) this.io.to(p1.socketId).emit("session:error", { code: "INSUFFICIENT_COINS", message: "Not enough coins for selected stake" });
       if (charged.insufficientUserId === p2.userId) this.io.to(p2.socketId).emit("session:error", { code: "INSUFFICIENT_COINS", message: "Not enough coins for selected stake" });
+      if (!charged.insufficientUserId) {
+        this.io.to(p1.socketId).emit("session:error", { code: "QUEUE_UNAVAILABLE", message: "Matchmaking is temporarily unavailable. Please retry." });
+        this.io.to(p2.socketId).emit("session:error", { code: "QUEUE_UNAVAILABLE", message: "Matchmaking is temporarily unavailable. Please retry." });
+      }
       this.io.to(p1.socketId).emit("queue:status", { inQueue: false, eta: null });
       this.io.to(p2.socketId).emit("queue:status", { inQueue: false, eta: null });
       void this.pairIfPossible();
@@ -100,24 +106,44 @@ export class Matchmaker {
     players: [QueueUser, QueueUser],
     stake: StakeValue
   ): Promise<{ ok: true; potCoins: number } | { ok: false; insufficientUserId: string | null }> {
-    const users = await prisma.user.findMany({
-      where: { chatUserId: { in: players.map((p) => p.userId) } },
-      include: { playerStats: true }
-    });
-    const byChat = new Map(users.map((u) => [u.chatUserId, u]));
-    const first = byChat.get(players[0].userId);
-    const second = byChat.get(players[1].userId);
-    if (!first || !second || !first.playerStats || !second.playerStats) {
-      return { ok: false, insufficientUserId: null };
+    try {
+      const users = await prisma.user.findMany({
+        where: { chatUserId: { in: players.map((p) => p.userId) } },
+        include: { playerStats: true }
+      });
+      const byChat = new Map(users.map((u) => [u.chatUserId, u]));
+      const first = byChat.get(players[0].userId);
+      const second = byChat.get(players[1].userId);
+      if (!first || !second || !first.playerStats || !second.playerStats) {
+        return this.tryChargeStakeFallback(players, stake);
+      }
+      if (first.playerStats.coins < stake) return { ok: false, insufficientUserId: players[0].userId };
+      if (second.playerStats.coins < stake) return { ok: false, insufficientUserId: players[1].userId };
+
+      await prisma.$transaction([
+        prisma.playerStats.update({ where: { userId: first.id }, data: { coins: { decrement: stake } } }),
+        prisma.playerStats.update({ where: { userId: second.id }, data: { coins: { decrement: stake } } })
+      ]);
+
+      return { ok: true, potCoins: stake * 2 };
+    } catch {
+      return this.tryChargeStakeFallback(players, stake);
     }
-    if (first.playerStats.coins < stake) return { ok: false, insufficientUserId: players[0].userId };
-    if (second.playerStats.coins < stake) return { ok: false, insufficientUserId: players[1].userId };
+  }
 
-    await prisma.$transaction([
-      prisma.playerStats.update({ where: { userId: first.id }, data: { coins: { decrement: stake } } }),
-      prisma.playerStats.update({ where: { userId: second.id }, data: { coins: { decrement: stake } } })
-    ]);
+  private async tryChargeStakeFallback(
+    players: [QueueUser, QueueUser],
+    stake: StakeValue
+  ): Promise<{ ok: true; potCoins: number } | { ok: false; insufficientUserId: string | null }> {
+    const first = await debitFallbackCoins(players[0].email, stake);
+    if (!first.ok) return { ok: false, insufficientUserId: players[0].userId };
 
+    const second = await debitFallbackCoins(players[1].email, stake);
+    if (!second.ok) {
+      // Refund first player if second cannot pay.
+      await grantFallbackCoins(players[0].email, stake);
+      return { ok: false, insufficientUserId: players[1].userId };
+    }
     return { ok: true, potCoins: stake * 2 };
   }
 }

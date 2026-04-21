@@ -4,9 +4,11 @@ import { applyCueImpulse, simulateShot } from "@/game/physics/engine";
 import { applyOutcomeToTurn, adjudicateShot } from "@/game/rules/eightBallRules";
 import { createMatchState } from "@/game/state";
 import { prisma } from "@/lib/prisma";
+import { grantFallbackCoins } from "@/lib/fallbackWallet";
 
 type ConnectedPlayer = {
   userId: string;
+  email: string;
   username: string;
   avatarUrl: string | null;
   socketId: string;
@@ -220,66 +222,91 @@ export class MatchRoom {
     this.broadcastState();
     this.io.to(this.id).emit("match:ended", { winnerUserId, reason });
 
-    const match = await prisma.match.create({
-      data: {
-        status: "FINISHED",
-        result:
-          winnerUserId === null
-            ? "DRAW"
-            : this.state.players[0].userId === winnerUserId
-              ? "PLAYER_ONE_WIN"
-              : "PLAYER_TWO_WIN",
-        completedAt: new Date(),
-        winnerUserId,
-        participants: {
-          create: this.state.players.map((p, idx) => ({
-            userId: p.userId,
-            seat: idx,
-            solids: p.group === "solids",
-            isWinner: p.userId === winnerUserId
-          }))
+    try {
+      const users = await prisma.user.findMany({
+        where: { chatUserId: { in: this.state.players.map((p) => p.userId) } },
+        select: { id: true, chatUserId: true }
+      });
+      const arenaUserByChat = new Map(users.map((u) => [u.chatUserId, u.id]));
+      const winnerArenaUserId = winnerUserId ? arenaUserByChat.get(winnerUserId) ?? null : null;
+
+      const match = await prisma.match.create({
+        data: {
+          status: "FINISHED",
+          result:
+            winnerUserId === null
+              ? "DRAW"
+              : this.state.players[0].userId === winnerUserId
+                ? "PLAYER_ONE_WIN"
+                : "PLAYER_TWO_WIN",
+          completedAt: new Date(),
+          winnerUserId: winnerArenaUserId,
+          participants: {
+            create: this.state.players
+              .map((p, idx) => {
+                const arenaUserId = arenaUserByChat.get(p.userId);
+                if (!arenaUserId) return null;
+                return {
+                  userId: arenaUserId,
+                  seat: idx,
+                  solids: p.group === "solids",
+                  isWinner: p.userId === winnerUserId
+                };
+              })
+              .filter((p): p is { userId: string; seat: number; solids: boolean; isWinner: boolean } => p !== null)
+          }
+        }
+      });
+
+      for (const p of this.state.players) {
+        const arenaUserId = arenaUserByChat.get(p.userId);
+        if (!arenaUserId) continue;
+        const coinsAward = p.userId === winnerUserId ? this.potCoins : 0;
+        await prisma.playerStats.upsert({
+          where: { userId: arenaUserId },
+          create: {
+            userId: arenaUserId,
+            wins: p.userId === winnerUserId ? 1 : 0,
+            losses: p.userId !== winnerUserId ? 1 : 0,
+            matchesPlayed: 1,
+            rating: 1000 + (p.userId === winnerUserId ? 10 : -10),
+            xp: p.userId === winnerUserId ? 280 : 140,
+            coins: 1000 + coinsAward,
+            cash: 200 + (p.userId === winnerUserId ? 2 : 1)
+          },
+          update: {
+            wins: { increment: p.userId === winnerUserId ? 1 : 0 },
+            losses: { increment: p.userId !== winnerUserId ? 1 : 0 },
+            matchesPlayed: { increment: 1 },
+            rating: { increment: p.userId === winnerUserId ? 10 : -10 },
+            xp: { increment: p.userId === winnerUserId ? 280 : 140 },
+            coins: { increment: coinsAward },
+            cash: { increment: p.userId === winnerUserId ? 2 : 1 }
+          }
+        });
+
+        await prisma.matchHistory.create({
+          data: {
+            userId: arenaUserId,
+            matchId: match.id,
+            summary:
+              p.userId === winnerUserId
+                ? `Victory by ${reason} (+${this.potCoins} coins from ${this.stakeCoins} stake)`
+                : `Defeat by ${reason} (-${this.stakeCoins} coins stake)`
+          }
+        });
+      }
+    } catch (error) {
+      console.error("match finish persistence failed", error);
+      if (winnerUserId) {
+        const winner = this.players.find((p) => p.userId === winnerUserId);
+        if (winner?.email) {
+          await grantFallbackCoins(winner.email, this.potCoins).catch(() => undefined);
         }
       }
-    });
-
-    for (const p of this.state.players) {
-      const coinsAward = p.userId === winnerUserId ? this.potCoins : 0;
-      await prisma.playerStats.upsert({
-        where: { userId: p.userId },
-        create: {
-          userId: p.userId,
-          wins: p.userId === winnerUserId ? 1 : 0,
-          losses: p.userId !== winnerUserId ? 1 : 0,
-          matchesPlayed: 1,
-          rating: 1000 + (p.userId === winnerUserId ? 10 : -10),
-          xp: p.userId === winnerUserId ? 280 : 140,
-          coins: 1000 + coinsAward,
-          cash: 200 + (p.userId === winnerUserId ? 2 : 1)
-        },
-        update: {
-          wins: { increment: p.userId === winnerUserId ? 1 : 0 },
-          losses: { increment: p.userId !== winnerUserId ? 1 : 0 },
-          matchesPlayed: { increment: 1 },
-          rating: { increment: p.userId === winnerUserId ? 10 : -10 },
-          xp: { increment: p.userId === winnerUserId ? 280 : 140 },
-          coins: { increment: coinsAward },
-          cash: { increment: p.userId === winnerUserId ? 2 : 1 }
-        }
-      });
-
-      await prisma.matchHistory.create({
-        data: {
-          userId: p.userId,
-          matchId: match.id,
-          summary:
-            p.userId === winnerUserId
-              ? `Victory by ${reason} (+${this.potCoins} coins from ${this.stakeCoins} stake)`
-              : `Defeat by ${reason} (-${this.stakeCoins} coins stake)`
-        }
-      });
+    } finally {
+      this.onFinished(this.id);
     }
-
-    this.onFinished(this.id);
   }
 
   handleRematch(userId: string): void {
