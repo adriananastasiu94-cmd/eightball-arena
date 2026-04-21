@@ -787,12 +787,15 @@ function drawStripeBand(ctx: CanvasRenderingContext2D, ball: BallState, pose: Ba
 
 function drawSingleSpot(ctx: CanvasRenderingContext2D, ball: BallState, pose: BallPose, number: number) {
   const front = pose.w.z;
-  if (front < 0.02) return;
+  if (front < -0.25) return;
 
   const cx = ball.pos.x + pose.w.x * ball.radius * 0.58;
   const cy = ball.pos.y + pose.w.y * ball.radius * 0.58;
-  const r = Math.max(3.2, ball.radius * (0.19 + front * 0.21));
+  const r = Math.max(3.8, ball.radius * (0.22 + Math.max(0, front) * 0.22));
+  const alpha = Math.max(0.22, Math.min(1, (front + 0.25) / 1.25));
 
+  ctx.save();
+  ctx.globalAlpha = alpha;
   const spotGrad = ctx.createRadialGradient(cx - r * 0.2, cy - r * 0.2, r * 0.22, cx, cy, r);
   spotGrad.addColorStop(0, "#fffffd");
   spotGrad.addColorStop(1, "#ede8d8");
@@ -801,18 +804,14 @@ function drawSingleSpot(ctx: CanvasRenderingContext2D, ball: BallState, pose: Ba
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fill();
 
-  const labelDir = { x: pose.u.x, y: pose.u.y };
-  const labelAngle = Math.hypot(labelDir.x, labelDir.y) > 1e-4 ? Math.atan2(labelDir.y, labelDir.x) : 0;
-
-  ctx.save();
+  // Keep glyph upright on screen for readability while the spot itself follows 3D roll.
   ctx.translate(cx, cy);
-  ctx.rotate(labelAngle);
   ctx.fillStyle = "#11161f";
   ctx.strokeStyle = "rgba(255,255,255,0.65)";
   ctx.lineWidth = Math.max(0.8, r * 0.08);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `${Math.max(8.5, r * 1.22)}px sans-serif`;
+  ctx.font = `700 ${Math.max(9.5, r * 1.3)}px sans-serif`;
   ctx.strokeText(String(number), 0, 0.2);
   ctx.fillText(String(number), 0, 0.2);
   ctx.restore();

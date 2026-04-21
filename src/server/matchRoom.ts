@@ -1,5 +1,5 @@
 import { Server } from "socket.io";
-import { MatchState, PlayerState, ShotInput } from "@/game/types";
+import { MatchState, PlayerState, ShotInput, ShotOutcome } from "@/game/types";
 import { applyCueImpulse, simulateShot } from "@/game/physics/engine";
 import { applyOutcomeToTurn, adjudicateShot } from "@/game/rules/eightBallRules";
 import { createMatchState } from "@/game/state";
@@ -39,7 +39,7 @@ export class MatchRoom {
   private disconnectTimers = new Map<string, NodeJS.Timeout>();
   private shotUnlockTimer: NodeJS.Timeout | null = null;
   private shotClockTimer: NodeJS.Timeout | null = null;
-  private pendingFinish: { winnerUserId: string | null; reason: string } | null = null;
+  private pendingResolution: { outcome: ShotOutcome; winnerReason: string | null } | null = null;
   private readonly shotClockMs = 30000;
   private lastCueBroadcastAt = 0;
   private lastCueBroadcastPos: { x: number; y: number } | null = null;
@@ -186,14 +186,20 @@ export class MatchRoom {
     // Authoritative flow: validate -> simulate -> adjudicate rules -> broadcast one true state.
     const ballsAfterImpulse = applyCueImpulse(this.state.balls, shot.angle, shot.power, shot.spin);
     const sim = simulateShot(this.state.table, ballsAfterImpulse);
-    const maxReplayFrames = 220;
-    const sampleStep = Math.max(5, Math.ceil(sim.frames.length / maxReplayFrames));
-    const replayFps = Math.max(12, Math.round(120 / sampleStep));
+    const maxReplayFrames = 110;
+    const sampleStep = Math.max(8, Math.ceil(sim.frames.length / maxReplayFrames));
+    const replayFps = Math.max(14, Math.round(120 / sampleStep));
     const replayFrames = sim.frames
       .filter((_, idx) => idx % sampleStep === 0 || idx === sim.frames.length - 1)
-      .map((frame) => frame.map((b) => ({ ...b, pos: { ...b.pos }, vel: { ...b.vel } })));
+      .map((frame) =>
+        frame.map((b) => ({
+          ...b,
+          pos: { x: Math.round(b.pos.x * 100) / 100, y: Math.round(b.pos.y * 100) / 100 },
+          vel: { x: Math.round(b.vel.x * 100) / 100, y: Math.round(b.vel.y * 100) / 100 }
+        }))
+      );
     const replayDurationMs = Math.max(300, Math.round((replayFrames.length / replayFps) * 1000));
-    const replayStartLagMs = 220;
+    const replayStartLagMs = 180;
     const replayServerNowMs = Date.now();
     const replayServerStartMs = replayServerNowMs + replayStartLagMs;
 
@@ -210,33 +216,35 @@ export class MatchRoom {
       cushionHits,
       isBreakShot: !this.state.breakDone
     });
-    applyOutcomeToTurn(this.state, outcome);
+    this.pendingResolution = {
+      outcome,
+      winnerReason: outcome.winnerUserId ? (outcome.legalEight ? "8_ball" : "foul_on_8") : null
+    };
+    this.state.lastOutcome = outcome;
 
     this.io.to(this.id).emit("match:replay", {
       frames: replayFrames,
       fps: replayFps,
       durationMs: replayDurationMs,
-      shotCount: this.state.shotCount,
+      shotCount: this.state.shotCount + 1,
       serverStartMs: replayServerStartMs,
       serverNowMs: replayServerNowMs
     });
-    if (outcome.winnerUserId) {
-      this.pendingFinish = {
-        winnerUserId: outcome.winnerUserId,
-        reason: outcome.legalEight ? "8_ball" : "foul_on_8"
-      };
-    }
+    this.broadcastState();
     this.scheduleShotUnlock(replayDurationMs + replayStartLagMs);
   }
 
   private scheduleShotUnlock(delayMs: number): void {
     if (this.shotUnlockTimer) clearTimeout(this.shotUnlockTimer);
     this.shotUnlockTimer = setTimeout(() => {
-      const pending = this.pendingFinish;
+      const pending = this.pendingResolution;
+      this.pendingResolution = null;
       if (pending) {
-        this.pendingFinish = null;
-        void this.finish(pending.winnerUserId, pending.reason);
-        return;
+        applyOutcomeToTurn(this.state, pending.outcome);
+        if (pending.outcome.winnerUserId) {
+          void this.finish(pending.outcome.winnerUserId, pending.winnerReason ?? "8_ball");
+          return;
+        }
       }
       this.state.shotInProgress = false;
       this.resetTurnDeadline();
@@ -245,6 +253,7 @@ export class MatchRoom {
   }
 
   private async finish(winnerUserId: string | null, reason: string) {
+    this.pendingResolution = null;
     this.clearShotClockTimer();
     if (this.shotUnlockTimer) {
       clearTimeout(this.shotUnlockTimer);
@@ -345,6 +354,7 @@ export class MatchRoom {
   handleRematch(userId: string): void {
     this.rematchVotes.add(userId);
     if (this.rematchVotes.size === 2) {
+      this.pendingResolution = null;
       const players: [PlayerState, PlayerState] = [
         { ...this.state.players[0], group: null },
         { ...this.state.players[1], group: null }
