@@ -3,6 +3,26 @@ import { Prisma } from "@prisma/client";
 import { chatMe } from "@/lib/chatAuth";
 import { prisma } from "@/lib/prisma";
 
+type ArenaProfileResponseUser = {
+  id: string;
+  username: string;
+  email: string;
+  avatarUrl?: string | null;
+  stats: {
+    wins: number;
+    losses: number;
+    matchesPlayed: number;
+    rating: number;
+    level: number;
+    xp: number;
+    coins: number;
+    cash: number;
+    ownedCueIds: string[];
+    equippedCueId: string;
+  };
+  recentMatches: Array<{ id: string; summary: string; at: Date }>;
+};
+
 function parseOwnedCueIds(value: unknown): string[] {
   if (!Array.isArray(value)) return ["cue_beginner"];
   const ids = value.filter((v): v is string => typeof v === "string" && v.length > 0);
@@ -34,6 +54,28 @@ type ChatProfile = {
   username: string;
   avatarUrl?: string | null;
 };
+
+function fallbackProfileFromChat(chatUser: ChatProfile): ArenaProfileResponseUser {
+  return {
+    id: chatUser.id,
+    username: chatUser.username,
+    email: chatUser.email,
+    avatarUrl: chatUser.avatarUrl ?? null,
+    stats: {
+      wins: 0,
+      losses: 0,
+      matchesPlayed: 0,
+      rating: 1000,
+      level: 1,
+      xp: 0,
+      coins: 1000,
+      cash: 200,
+      ownedCueIds: ["cue_beginner"],
+      equippedCueId: "cue_beginner"
+    },
+    recentMatches: []
+  };
+}
 
 async function findByEmailInsensitive(email: string) {
   return prisma.user.findFirst({
@@ -184,12 +226,16 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("profile:get failed", error);
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      return NextResponse.json(
-        { error: "Unable to load profile right now", code: error.code },
-        { status: 500 }
-      );
+      return NextResponse.json({
+        user: fallbackProfileFromChat(chatUser),
+        warning: "profile_sync_degraded",
+        code: error.code
+      });
     }
-    return NextResponse.json({ error: "Unable to load profile right now" }, { status: 500 });
+    return NextResponse.json({
+      user: fallbackProfileFromChat(chatUser),
+      warning: "profile_sync_degraded"
+    });
   }
 }
 
