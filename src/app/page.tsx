@@ -194,7 +194,7 @@ export default function HomePage() {
         try {
           const res = await api<{ user: Me }>("/api/profile");
           const incoming = res.user;
-          const equippedId = incoming.stats?.equippedCueId ?? "cue_beginner";
+          const equippedId = incoming.stats?.equippedCueId ?? "cue_classic";
           const idx = CUE_STYLES.findIndex((c) => c.id === equippedId);
           if (idx >= 0) setCueIndex(idx);
           setMe(incoming);
@@ -1292,7 +1292,7 @@ export default function HomePage() {
         selectedTableIndex={tableIndex}
         cues={CUE_STYLES}
         tables={TABLE_SKINS}
-        ownedCueIds={me.stats?.ownedCueIds ?? ["cue_beginner"]}
+        ownedCueIds={me.stats?.ownedCueIds ?? ["cue_classic"]}
         coins={me.stats?.coins ?? 0}
         cash={me.stats?.cash ?? 0}
         busyCueId={busyCueId}

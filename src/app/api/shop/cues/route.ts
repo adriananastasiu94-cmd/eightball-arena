@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chatMe } from "@/lib/chatAuth";
 import { prisma } from "@/lib/prisma";
-import { CUE_CATALOG, cueById } from "@/lib/shopCues";
+import { CUE_CATALOG, cueById, DEFAULT_CUE_ID } from "@/lib/shopCues";
 import {
   debitFallbackCash,
   debitFallbackCoins,
@@ -39,10 +39,8 @@ type ChatIdentity = {
 };
 
 function parseOwnedCueIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return ["cue_beginner"];
-  const ids = value.filter((v): v is string => typeof v === "string" && v.length > 0);
-  if (!ids.includes("cue_beginner")) ids.unshift("cue_beginner");
-  return Array.from(new Set(ids));
+  if (!Array.isArray(value)) return [DEFAULT_CUE_ID];
+  return [DEFAULT_CUE_ID];
 }
 
 function sanitizeUsername(value: string): string {
@@ -178,7 +176,7 @@ export async function GET(request: NextRequest) {
         ownedCueIds,
         equippedCueId: ownedCueIds.includes(payload.stats.equippedCueId)
           ? payload.stats.equippedCueId
-          : "cue_beginner"
+          : DEFAULT_CUE_ID
       }
     });
   } catch (error) {

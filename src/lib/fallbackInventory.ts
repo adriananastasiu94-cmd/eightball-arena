@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { DEFAULT_CUE_ID } from "@/lib/shopCues";
 
 type InventoryShape = {
   ownedCueIds: string[];
@@ -14,8 +15,8 @@ declare global {
   var arenaInventoryFallbackMemory: Map<string, MemoryInventory> | undefined;
 }
 
-const DEFAULT_OWNED = ["cue_beginner"];
-const DEFAULT_EQUIPPED = "cue_beginner";
+const DEFAULT_OWNED = [DEFAULT_CUE_ID];
+const DEFAULT_EQUIPPED = DEFAULT_CUE_ID;
 
 const memoryInventory = global.arenaInventoryFallbackMemory ?? new Map<string, MemoryInventory>();
 if (!global.arenaInventoryFallbackMemory) {
@@ -28,9 +29,7 @@ function normalizeEmail(email: string): string {
 
 function normalizeOwnedCueIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [...DEFAULT_OWNED];
-  const ids = value.filter((v): v is string => typeof v === "string" && v.length > 0);
-  if (!ids.includes("cue_beginner")) ids.unshift("cue_beginner");
-  return Array.from(new Set(ids));
+  return [...DEFAULT_OWNED];
 }
 
 function parseOwnedCueIdsText(raw: unknown): string[] {
@@ -79,8 +78,8 @@ async function ensureFallbackInventoryTable(): Promise<boolean> {
     await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS arena_inventory_fallback (
         email TEXT PRIMARY KEY,
-        owned_cue_ids TEXT NOT NULL DEFAULT 'cue_beginner',
-        equipped_cue_id TEXT NOT NULL DEFAULT 'cue_beginner',
+        owned_cue_ids TEXT NOT NULL DEFAULT '${DEFAULT_CUE_ID}',
+        equipped_cue_id TEXT NOT NULL DEFAULT '${DEFAULT_CUE_ID}',
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);

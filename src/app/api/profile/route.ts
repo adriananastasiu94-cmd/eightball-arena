@@ -4,6 +4,7 @@ import { chatMe } from "@/lib/chatAuth";
 import { prisma } from "@/lib/prisma";
 import { getFallbackWalletByEmail } from "@/lib/fallbackWallet";
 import { ensureFallbackInventoryByEmail } from "@/lib/fallbackInventory";
+import { DEFAULT_CUE_ID } from "@/lib/shopCues";
 
 type ArenaProfileResponseUser = {
   id: string;
@@ -27,10 +28,8 @@ type ArenaProfileResponseUser = {
 };
 
 function parseOwnedCueIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return ["cue_beginner"];
-  const ids = value.filter((v): v is string => typeof v === "string" && v.length > 0);
-  if (!ids.includes("cue_beginner")) ids.unshift("cue_beginner");
-  return Array.from(new Set(ids));
+  if (!Array.isArray(value)) return [DEFAULT_CUE_ID];
+  return [DEFAULT_CUE_ID];
 }
 
 function sanitizeUsername(value: string): string {
@@ -74,8 +73,8 @@ function fallbackProfileFromChat(chatUser: ChatProfile): ArenaProfileResponseUse
       xp: 0,
       coins: 1000,
       cash: 200,
-      ownedCueIds: ["cue_beginner"],
-      equippedCueId: "cue_beginner"
+      ownedCueIds: [DEFAULT_CUE_ID],
+      equippedCueId: DEFAULT_CUE_ID
     },
     recentMatches: []
   };
@@ -255,7 +254,7 @@ export async function GET(request: NextRequest) {
               cash: user.playerStats.cash ?? 200,
               winStreak,
               ownedCueIds: parseOwnedCueIds(user.playerStats.ownedCueIds),
-              equippedCueId: user.playerStats.equippedCueId || "cue_beginner"
+              equippedCueId: user.playerStats.equippedCueId || DEFAULT_CUE_ID
             }
           : null,
         recentMatches: user.history.map((h: { matchId: string; summary: string; createdAt: Date }) => ({
