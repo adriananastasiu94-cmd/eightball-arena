@@ -58,6 +58,15 @@ type TableArtworkAnchors = {
 
 const BG_GRAD = ["#081318", "#0d1b2a"];
 
+const DEFAULT_ARTWORK_ANCHORS_NORM: TableArtworkAnchors = {
+  tl: { x: 0.0735, y: 0.098 },
+  tm: { x: 0.5, y: 0.089 },
+  tr: { x: 0.9265, y: 0.098 },
+  bl: { x: 0.0735, y: 0.902 },
+  bm: { x: 0.5, y: 0.911 },
+  br: { x: 0.9265, y: 0.902 }
+};
+
 export function GameCanvas({
   state,
   myUserId,
@@ -805,24 +814,54 @@ function detectTableArtworkAnchors(
 ): TableArtworkAnchors | null {
   const sw = Math.max(1, Math.floor(crop.sw));
   const sh = Math.max(1, Math.floor(crop.sh));
+  const fallback = denormalizeArtworkAnchors(sw, sh, DEFAULT_ARTWORK_ANCHORS_NORM);
   const canvas = document.createElement("canvas");
   canvas.width = sw;
   canvas.height = sh;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
+  if (!ctx) return fallback;
 
   ctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, sw, sh);
   const data = ctx.getImageData(0, 0, sw, sh).data;
 
-  const tl = detectPocketCenterInBox(data, sw, sh, { x0: 0.0, x1: 0.3, y0: 0.0, y1: 0.34 });
-  const tm = detectPocketCenterInBox(data, sw, sh, { x0: 0.34, x1: 0.66, y0: 0.0, y1: 0.28 });
-  const tr = detectPocketCenterInBox(data, sw, sh, { x0: 0.7, x1: 1.0, y0: 0.0, y1: 0.34 });
-  const bl = detectPocketCenterInBox(data, sw, sh, { x0: 0.0, x1: 0.3, y0: 0.66, y1: 1.0 });
-  const bm = detectPocketCenterInBox(data, sw, sh, { x0: 0.34, x1: 0.66, y0: 0.72, y1: 1.0 });
-  const br = detectPocketCenterInBox(data, sw, sh, { x0: 0.7, x1: 1.0, y0: 0.66, y1: 1.0 });
-  if (!tl || !tm || !tr || !bl || !bm || !br) return null;
+  const detected: TableArtworkAnchors = {
+    tl: detectPocketCenterInBox(data, sw, sh, { x0: 0.0, x1: 0.2, y0: 0.0, y1: 0.24 }) ?? fallback.tl,
+    tm: detectPocketCenterInBox(data, sw, sh, { x0: 0.44, x1: 0.56, y0: 0.0, y1: 0.2 }) ?? fallback.tm,
+    tr: detectPocketCenterInBox(data, sw, sh, { x0: 0.8, x1: 1.0, y0: 0.0, y1: 0.24 }) ?? fallback.tr,
+    bl: detectPocketCenterInBox(data, sw, sh, { x0: 0.0, x1: 0.2, y0: 0.76, y1: 1.0 }) ?? fallback.bl,
+    bm: detectPocketCenterInBox(data, sw, sh, { x0: 0.44, x1: 0.56, y0: 0.8, y1: 1.0 }) ?? fallback.bm,
+    br: detectPocketCenterInBox(data, sw, sh, { x0: 0.8, x1: 1.0, y0: 0.76, y1: 1.0 }) ?? fallback.br
+  };
 
-  return { tl, tm, tr, bl, bm, br };
+  const keys: Array<keyof TableArtworkAnchors> = ["tl", "tm", "tr", "bl", "bm", "br"];
+  let replaced = 0;
+  for (const key of keys) {
+    const dxNorm = Math.abs(detected[key].x - fallback[key].x) / Math.max(1, sw);
+    const dyNorm = Math.abs(detected[key].y - fallback[key].y) / Math.max(1, sh);
+    const distNorm = Math.hypot(dxNorm, dyNorm);
+    if (!Number.isFinite(distNorm) || distNorm > 0.075) {
+      detected[key] = { ...fallback[key] };
+      replaced += 1;
+    }
+  }
+
+  if (replaced >= 3) return fallback;
+  return detected;
+}
+
+function denormalizeArtworkAnchors(
+  width: number,
+  height: number,
+  norm: TableArtworkAnchors
+): TableArtworkAnchors {
+  return {
+    tl: { x: norm.tl.x * width, y: norm.tl.y * height },
+    tm: { x: norm.tm.x * width, y: norm.tm.y * height },
+    tr: { x: norm.tr.x * width, y: norm.tr.y * height },
+    bl: { x: norm.bl.x * width, y: norm.bl.y * height },
+    bm: { x: norm.bm.x * width, y: norm.bm.y * height },
+    br: { x: norm.br.x * width, y: norm.br.y * height }
+  };
 }
 
 function detectPocketCenterInBox(
@@ -965,10 +1004,8 @@ function computeArtworkDrawRect(
   ]);
   const fitY = fitLinear1D([
     { source: artwork.anchors.tl.y, target: topTarget },
-    { source: artwork.anchors.tm.y, target: topTarget },
     { source: artwork.anchors.tr.y, target: topTarget },
     { source: artwork.anchors.bl.y, target: bottomTarget },
-    { source: artwork.anchors.bm.y, target: bottomTarget },
     { source: artwork.anchors.br.y, target: bottomTarget }
   ]);
   if (!fitX || !fitY) return defaultRect;

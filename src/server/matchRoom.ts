@@ -241,14 +241,14 @@ export class MatchRoom {
     // Authoritative flow: validate -> simulate -> adjudicate rules -> broadcast one true state.
     const ballsAfterImpulse = applyCueImpulse(this.state.balls, shot.angle, shot.power, shot.spin);
     const sim = simulateShot(this.state.table, ballsAfterImpulse);
-    const maxReplayFrames = 160;
-    const targetReplayFps = 24;
+    const maxReplayFrames = 120;
+    const targetReplayFps = 22;
     const baseSampleStep = Math.max(1, Math.round(PHYSICS.stepHz / targetReplayFps));
     const sampledFrameCount = Math.ceil(sim.frames.length / baseSampleStep);
     const compressionStep = Math.max(1, Math.ceil(sampledFrameCount / maxReplayFrames));
     const sampleStep = baseSampleStep * compressionStep;
     const replayFps = Math.max(14, Math.round(PHYSICS.stepHz / sampleStep));
-    const round3 = (value: number) => Math.round(value * 1000) / 1000;
+    const round3 = (value: number) => Math.round(value * 100) / 100;
     const replayFrames = sim.frames
       .filter((_, idx) => idx % sampleStep === 0 || idx === sim.frames.length - 1)
       .map((frame) =>
@@ -334,9 +334,9 @@ export class MatchRoom {
       durationMs: replayDurationMs,
       shotCount: nextShotCount
     });
-    this.pendingReplay.forceStartTimer = setTimeout(() => {
-      this.startPendingReplay("timeout");
-    }, 1800);
+    // Start immediately after payload broadcast so shot release feels instant.
+    // Keep ready acknowledgements only as telemetry (handleReplayReady remains harmless).
+    this.startPendingReplay("all_ready");
   }
 
   private startPendingReplay(reason: "all_ready" | "timeout"): void {
@@ -348,7 +348,7 @@ export class MatchRoom {
       pending.forceStartTimer = null;
     }
 
-    const replayStartLagMs = 90;
+    const replayStartLagMs = 36;
     const serverNowMs = Date.now();
     const serverStartMs = serverNowMs + replayStartLagMs;
     this.io.to(this.id).emit("match:replay-start", {

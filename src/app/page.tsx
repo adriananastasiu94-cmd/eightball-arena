@@ -148,7 +148,12 @@ export default function HomePage() {
   const [busyCueId, setBusyCueId] = useState<string | null>(null);
   const [mode, setMode] = useState<"online" | "sandbox">("sandbox");
   const [localState, setLocalState] = useState<MatchState | null>(null);
-  const [localReplay, setLocalReplay] = useState<{ id: string; frames: MatchState["balls"][]; fps: number } | null>(null);
+  const [localReplay, setLocalReplay] = useState<{
+    id: string;
+    frames: MatchState["balls"][];
+    fps: number;
+    startAtMs?: number;
+  } | null>(null);
   const [selectedStake, setSelectedStake] = useState<number>(10);
   const [menuView, setMenuView] = useState<MenuView>("main");
   const [pendingQueueStake, setPendingQueueStake] = useState<number | null>(null);
@@ -638,7 +643,12 @@ export default function HomePage() {
     const frames = sim.frames
       .filter((_, idx) => idx % sampleStep === 0 || idx === sim.frames.length - 1)
       .map((frame) => frame.map((b) => ({ ...b, pos: { ...b.pos }, vel: { ...b.vel } })));
-    setLocalReplay({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, frames, fps });
+    setLocalReplay({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      frames,
+      fps,
+      startAtMs: Date.now() + 10
+    });
     window.setTimeout(() => setLocalState(next), Math.max(120, Math.round((frames.length / fps) * 1000)));
 
     if (pocketed.length) arenaAudio.pocket();

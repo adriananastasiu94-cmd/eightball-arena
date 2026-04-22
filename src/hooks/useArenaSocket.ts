@@ -27,6 +27,7 @@ export function useArenaSocket(enabled: boolean) {
   const [isShotPending, setIsShotPending] = useState(false);
   const [shotError, setShotError] = useState<string | null>(null);
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
+  const serverOffsetRef = useRef(0);
   const [presenceByUser, setPresenceByUser] = useState<Record<string, PresencePayload>>({});
   const socketRef = useRef<Socket | null>(null);
   const lockTimerRef = useRef<number | null>(null);
@@ -73,6 +74,7 @@ export function useArenaSocket(enabled: boolean) {
       if (typeof serverTime === "number") {
         const rawOffset = serverTime - Date.now();
         setServerOffsetMs(rawOffset);
+        serverOffsetRef.current = rawOffset;
       }
       if (!nextState.shotInProgress) {
         setReplay(null);
@@ -97,14 +99,17 @@ export function useArenaSocket(enabled: boolean) {
         startedReplayIdsRef.current.add(replayId);
       }
 
-      let startupDelayMs = 0;
+      let startupOffsetMs = 0;
       if (typeof start.serverStartMs === "number" && typeof start.serverNowMs === "number") {
-        const declaredLeadMs = start.serverStartMs - start.serverNowMs;
-        startupDelayMs = Math.max(0, Math.min(220, Math.round(declaredLeadMs)));
+        const estimatedLocalStartAt = start.serverStartMs - serverOffsetRef.current;
+        startupOffsetMs = Math.round(estimatedLocalStartAt - Date.now());
       } else if (typeof start.serverStartMs === "number") {
-        startupDelayMs = Math.max(0, Math.min(220, Math.round(start.serverStartMs - Date.now())));
+        const estimatedLocalStartAt = start.serverStartMs - serverOffsetRef.current;
+        startupOffsetMs = Math.round(estimatedLocalStartAt - Date.now());
       }
-      const localStartAtMs = Date.now() + startupDelayMs;
+      const minCatchupMs = -Math.max(0, payload.durationMs - 16);
+      const clampedOffsetMs = Math.max(minCatchupMs, Math.min(180, startupOffsetMs));
+      const localStartAtMs = Date.now() + clampedOffsetMs;
 
       setReplay({
         id: replayId,
@@ -122,10 +127,11 @@ export function useArenaSocket(enabled: boolean) {
       shotPendingRef.current = true;
       setIsShotPending(true);
       if (lockTimerRef.current !== null) window.clearTimeout(lockTimerRef.current);
+      const lockLeadMs = Math.max(0, clampedOffsetMs);
       lockTimerRef.current = window.setTimeout(() => {
         shotPendingRef.current = false;
         setIsShotPending(false);
-      }, startupDelayMs + payload.durationMs + 24);
+      }, lockLeadMs + payload.durationMs + 24);
 
       delete replayPayloadByIdRef.current[replayId];
       delete replayStartByIdRef.current[replayId];
