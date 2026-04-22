@@ -9,6 +9,8 @@ services:
     autoDeploy: true
     healthCheckPath: /
     envVars:
+      - key: NODE_VERSION
+        value: 20
       - key: NODE_ENV
         value: production
       - key: JWT_SECRET
