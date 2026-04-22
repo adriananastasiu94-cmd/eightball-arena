@@ -39,8 +39,11 @@ type ChatIdentity = {
 };
 
 function parseOwnedCueIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return [DEFAULT_CUE_ID];
-  return [DEFAULT_CUE_ID];
+  const normalized = Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.length > 0)
+    : [];
+  if (!normalized.includes(DEFAULT_CUE_ID)) normalized.unshift(DEFAULT_CUE_ID);
+  return Array.from(new Set(normalized));
 }
 
 function sanitizeUsername(value: string): string {

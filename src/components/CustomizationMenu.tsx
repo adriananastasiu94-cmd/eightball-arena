@@ -104,30 +104,33 @@ export function CustomizationMenu({
                 return (
                   <div key={cue.id} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-2">
                     <div className="flex min-w-0 items-center gap-3">
-                      <div className="h-8 w-20 flex-none overflow-hidden rounded border border-white/15 bg-black/30">
-                        {cue.artwork ? (
-                          <div
-                            className="h-full w-full bg-contain bg-center bg-no-repeat"
-                            style={{ backgroundImage: `url(${cue.artwork})` }}
-                          />
-                        ) : null}
-                      </div>
                       <div className="w-36 text-sm font-medium text-white">{cue.name}</div>
                       <div className="relative h-3.5 w-full rounded-full border border-white/15 bg-[#dadde0]">
                         <div className="absolute left-[1%] top-1/2 h-2.5 w-[14%] -translate-y-1/2 rounded-full bg-[#5a3a1f]" />
                         <div className="absolute left-[15%] top-1/2 h-2.5 w-[7%] -translate-y-1/2 rounded-full bg-black/90" />
-                        <div
-                          className="absolute left-[32%] top-1/2 h-2 -translate-y-1/2"
-                          style={{ width: "15%", backgroundColor: cue.flagColors[0], clipPath: "polygon(0 0, 100% 20%, 88% 100%, 0 80%)" }}
-                        />
-                        <div
-                          className="absolute left-[45%] top-1/2 h-2 -translate-y-1/2"
-                          style={{ width: "15%", backgroundColor: cue.flagColors[1], clipPath: "polygon(12% 0, 100% 20%, 88% 100%, 0 80%)" }}
-                        />
-                        <div
-                          className="absolute left-[58%] top-1/2 h-2 -translate-y-1/2"
-                          style={{ width: "15%", backgroundColor: cue.flagColors[2], clipPath: "polygon(12% 0, 100% 20%, 88% 100%, 0 80%)" }}
-                        />
+                        {cue.artwork ? (
+                          <div className="absolute left-[22%] top-1/2 h-2.5 w-[73%] -translate-y-1/2 overflow-hidden rounded-full border border-white/20 bg-black/35">
+                            <div
+                              className="h-full w-full bg-cover bg-center bg-no-repeat"
+                              style={{ backgroundImage: `url(${cue.artwork})` }}
+                            />
+                          </div>
+                        ) : (
+                          <>
+                            <div
+                              className="absolute left-[32%] top-1/2 h-2 -translate-y-1/2"
+                              style={{ width: "15%", backgroundColor: cue.flagColors[0], clipPath: "polygon(0 0, 100% 20%, 88% 100%, 0 80%)" }}
+                            />
+                            <div
+                              className="absolute left-[45%] top-1/2 h-2 -translate-y-1/2"
+                              style={{ width: "15%", backgroundColor: cue.flagColors[1], clipPath: "polygon(12% 0, 100% 20%, 88% 100%, 0 80%)" }}
+                            />
+                            <div
+                              className="absolute left-[58%] top-1/2 h-2 -translate-y-1/2"
+                              style={{ width: "15%", backgroundColor: cue.flagColors[2], clipPath: "polygon(12% 0, 100% 20%, 88% 100%, 0 80%)" }}
+                            />
+                          </>
+                        )}
                         <div className="absolute right-[1%] top-1/2 h-2.5 w-[2.5%] -translate-y-1/2 rounded-full bg-[#a0a5ad]" />
                       </div>
                     </div>
