@@ -169,16 +169,25 @@ export function CustomizationMenu({
                       <div className="truncate text-sm font-medium text-white">{skin.name}</div>
                       <span className={`rounded-md border px-2 py-0.5 text-[11px] ${rarityClass(rarity)}`}>{rarity}</span>
                     </div>
-                    <div className="mb-2 h-24 rounded-lg p-2" style={{ background: `linear-gradient(180deg, ${skin.bgTop}, ${skin.bgBottom})` }}>
-                      <div className="h-full rounded-md p-2" style={{ backgroundColor: skin.rail }}>
-                        <div className="relative h-full rounded-sm" style={{ backgroundColor: skin.felt }}>
-                          <div className="absolute left-0 top-0 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full" style={{ backgroundColor: skin.pocket }} />
-                          <div className="absolute right-0 top-0 h-3 w-3 translate-x-1/2 -translate-y-1/2 rounded-full" style={{ backgroundColor: skin.pocket }} />
-                          <div className="absolute bottom-0 left-0 h-3 w-3 -translate-x-1/2 translate-y-1/2 rounded-full" style={{ backgroundColor: skin.pocket }} />
-                          <div className="absolute bottom-0 right-0 h-3 w-3 translate-x-1/2 translate-y-1/2 rounded-full" style={{ backgroundColor: skin.pocket }} />
+                    {skin.artwork ? (
+                      <div className="mb-2 h-24 overflow-hidden rounded-lg border border-white/15">
+                        <div
+                          className="h-full w-full bg-cover bg-center"
+                          style={{ backgroundImage: `url(${skin.artwork})` }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="mb-2 h-24 rounded-lg p-2" style={{ background: `linear-gradient(180deg, ${skin.bgTop}, ${skin.bgBottom})` }}>
+                        <div className="h-full rounded-md p-2" style={{ backgroundColor: skin.rail }}>
+                          <div className="relative h-full rounded-sm" style={{ backgroundColor: skin.felt }}>
+                            <div className="absolute left-0 top-0 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full" style={{ backgroundColor: skin.pocket }} />
+                            <div className="absolute right-0 top-0 h-3 w-3 translate-x-1/2 -translate-y-1/2 rounded-full" style={{ backgroundColor: skin.pocket }} />
+                            <div className="absolute bottom-0 left-0 h-3 w-3 -translate-x-1/2 translate-y-1/2 rounded-full" style={{ backgroundColor: skin.pocket }} />
+                            <div className="absolute bottom-0 right-0 h-3 w-3 translate-x-1/2 translate-y-1/2 rounded-full" style={{ backgroundColor: skin.pocket }} />
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
                     <button
                       onClick={() => onSelectTable(idx)}
                       className={`w-full rounded-md px-2.5 py-1.5 text-xs font-medium ${equipped ? "bg-emerald-500/80 text-white" : "bg-white/10 text-white"}`}

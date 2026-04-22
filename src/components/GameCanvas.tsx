@@ -39,6 +39,13 @@ type BallPose = {
   y: number;
 };
 
+type TableArtworkAsset = {
+  url: string;
+  image: HTMLImageElement;
+  crop: { sx: number; sy: number; sw: number; sh: number };
+  loaded: boolean;
+};
+
 const BG_GRAD = ["#081318", "#0d1b2a"];
 
 export function GameCanvas({
@@ -65,6 +72,7 @@ export function GameCanvas({
   const aimSyncRaf = useRef<number | null>(null);
   const ballPoseRef = useRef<Map<number, BallPose>>(new Map());
   const replayDoneRef = useRef<Props["onReplayDone"]>(onReplayDone);
+  const tableArtworkRef = useRef<TableArtworkAsset | null>(null);
   const cuePlacementRaf = useRef<number | null>(null);
   const pendingCuePlacementRef = useRef<{ x: number; y: number } | null>(null);
   const aimingPointerRef = useRef<number | null>(null);
@@ -125,6 +133,42 @@ export function GameCanvas({
   }, [state?.ballInHand]);
 
   useEffect(() => {
+    const url = activeTable.artwork;
+    if (!url) {
+      tableArtworkRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => {
+      if (cancelled) return;
+      tableArtworkRef.current = {
+        url,
+        image,
+        crop: detectTableArtworkCrop(image),
+        loaded: true
+      };
+    };
+    image.onerror = () => {
+      if (cancelled) return;
+      tableArtworkRef.current = null;
+    };
+    image.src = url;
+    tableArtworkRef.current = {
+      url,
+      image,
+      crop: { sx: 0, sy: 0, sw: 1, sh: 1 },
+      loaded: false
+    };
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTable.artwork]);
+
+  useEffect(() => {
     ballPoseRef.current.clear();
   }, [state?.matchId]);
 
@@ -180,6 +224,11 @@ export function GameCanvas({
       const liveAim = aimRef.current;
       const remoteAim =
         remotePresence && Date.now() - remotePresence.t < 900 ? remotePresence : null;
+      const artwork = tableArtworkRef.current;
+      const useArtwork =
+        Boolean(activeTable.artwork) &&
+        Boolean(artwork?.loaded) &&
+        artwork?.url === activeTable.artwork;
 
       ctx.clearRect(0, 0, width, height);
 
@@ -193,128 +242,144 @@ export function GameCanvas({
       ctx.translate(ox, oy);
       ctx.scale(scale, scale);
 
-      const railGrad = ctx.createLinearGradient(0, 0, 0, state.table.height);
-      railGrad.addColorStop(0, brighten(activeTable.rail, 0.12));
-      railGrad.addColorStop(0.5, activeTable.rail);
-      railGrad.addColorStop(1, darken(activeTable.rail, 0.18));
-      ctx.fillStyle = railGrad;
-      ctx.fillRect(0, 0, state.table.width, state.table.height);
-
-      const innerRailInset = 5;
-      const railLight = ctx.createLinearGradient(0, 0, 0, state.table.height);
-      railLight.addColorStop(0, "rgba(255,255,255,0.18)");
-      railLight.addColorStop(0.25, "rgba(255,255,255,0.06)");
-      railLight.addColorStop(0.8, "rgba(0,0,0,0.18)");
-      railLight.addColorStop(1, "rgba(0,0,0,0.28)");
-      ctx.strokeStyle = railLight;
-      ctx.lineWidth = innerRailInset * 2;
-      ctx.strokeRect(
-        innerRailInset,
-        innerRailInset,
-        state.table.width - innerRailInset * 2,
-        state.table.height - innerRailInset * 2
-      );
-
-      const feltX = state.table.rail;
-      const feltY = state.table.rail;
-      const feltW = state.table.width - state.table.rail * 2;
-      const feltH = state.table.height - state.table.rail * 2;
-      const feltGrad = ctx.createLinearGradient(feltX, feltY, feltX, feltY + feltH);
-      feltGrad.addColorStop(0, brighten(activeTable.felt, 0.12));
-      feltGrad.addColorStop(0.5, activeTable.felt);
-      feltGrad.addColorStop(1, darken(activeTable.felt, 0.14));
-      ctx.fillStyle = feltGrad;
-      ctx.fillRect(feltX, feltY, feltW, feltH);
-
-      ctx.strokeStyle = "rgba(255,255,255,0.06)";
-      ctx.lineWidth = 0.9;
-      for (let i = 1; i <= 14; i += 1) {
-        const y = feltY + (feltH * i) / 15;
-        ctx.beginPath();
-        ctx.moveTo(feltX, y);
-        ctx.lineTo(feltX + feltW, y);
-        ctx.stroke();
-      }
-
-      const headStringX = feltX + feltW * 0.26;
-      ctx.strokeStyle = "rgba(255,255,255,0.12)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(headStringX, feltY + 8);
-      ctx.lineTo(headStringX, feltY + feltH - 8);
-      ctx.stroke();
-
-      ctx.fillStyle = "rgba(255,255,255,0.28)";
-      ctx.beginPath();
-      ctx.arc(headStringX, feltY + feltH * 0.5, 2.4, 0, Math.PI * 2);
-      ctx.fill();
-
-      const sights = [
-        [state.table.width * 0.18, state.table.rail * 0.5],
-        [state.table.width * 0.5, state.table.rail * 0.5],
-        [state.table.width * 0.82, state.table.rail * 0.5],
-        [state.table.width * 0.18, state.table.height - state.table.rail * 0.5],
-        [state.table.width * 0.5, state.table.height - state.table.rail * 0.5],
-        [state.table.width * 0.82, state.table.height - state.table.rail * 0.5],
-        [state.table.rail * 0.5, state.table.height * 0.26],
-        [state.table.rail * 0.5, state.table.height * 0.5],
-        [state.table.rail * 0.5, state.table.height * 0.74],
-        [state.table.width - state.table.rail * 0.5, state.table.height * 0.26],
-        [state.table.width - state.table.rail * 0.5, state.table.height * 0.5],
-        [state.table.width - state.table.rail * 0.5, state.table.height * 0.74]
-      ];
-      for (const [x, y] of sights) {
-        ctx.fillStyle = "rgba(248,228,181,0.74)";
-        ctx.beginPath();
-        ctx.arc(x, y, 2.2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      const pocketColor = activeTable.pocket;
-      const pocketDefs = getVisualPockets(state.table);
-      const pocketProfile = getPocketVisualProfile(state.table);
-      for (const pocket of pocketDefs) {
-        const outerR = pocket.kind === "corner" ? state.table.pocketRadius * 0.98 : state.table.pocketRadius * 0.9;
-        const innerR = outerR * 0.68;
-
-        ctx.beginPath();
-        const pocketGrad = ctx.createRadialGradient(
-          pocket.x - 2,
-          pocket.y - 2,
-          outerR * 0.16,
-          pocket.x,
-          pocket.y,
-          outerR
+      if (useArtwork && artwork) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(
+          artwork.image,
+          artwork.crop.sx,
+          artwork.crop.sy,
+          artwork.crop.sw,
+          artwork.crop.sh,
+          0,
+          0,
+          state.table.width,
+          state.table.height
         );
-        pocketGrad.addColorStop(0, brighten(pocketColor, 0.05));
-        pocketGrad.addColorStop(1, pocketColor);
-        ctx.fillStyle = pocketGrad;
-        ctx.arc(pocket.x, pocket.y, outerR, 0, Math.PI * 2);
-        ctx.fill();
+      } else {
+        const railGrad = ctx.createLinearGradient(0, 0, 0, state.table.height);
+        railGrad.addColorStop(0, brighten(activeTable.rail, 0.12));
+        railGrad.addColorStop(0.5, activeTable.rail);
+        railGrad.addColorStop(1, darken(activeTable.rail, 0.18));
+        ctx.fillStyle = railGrad;
+        ctx.fillRect(0, 0, state.table.width, state.table.height);
 
-        ctx.beginPath();
-        ctx.fillStyle = "rgba(0,0,0,0.65)";
-        ctx.arc(pocket.x, pocket.y, innerR, 0, Math.PI * 2);
-        ctx.fill();
+        const innerRailInset = 5;
+        const railLight = ctx.createLinearGradient(0, 0, 0, state.table.height);
+        railLight.addColorStop(0, "rgba(255,255,255,0.18)");
+        railLight.addColorStop(0.25, "rgba(255,255,255,0.06)");
+        railLight.addColorStop(0.8, "rgba(0,0,0,0.18)");
+        railLight.addColorStop(1, "rgba(0,0,0,0.28)");
+        ctx.strokeStyle = railLight;
+        ctx.lineWidth = innerRailInset * 2;
+        ctx.strokeRect(
+          innerRailInset,
+          innerRailInset,
+          state.table.width - innerRailInset * 2,
+          state.table.height - innerRailInset * 2
+        );
 
-        ctx.strokeStyle = "rgba(255,255,255,0.1)";
-        ctx.lineWidth = 1.15;
+        const feltX = state.table.rail;
+        const feltY = state.table.rail;
+        const feltW = state.table.width - state.table.rail * 2;
+        const feltH = state.table.height - state.table.rail * 2;
+        const feltGrad = ctx.createLinearGradient(feltX, feltY, feltX, feltY + feltH);
+        feltGrad.addColorStop(0, brighten(activeTable.felt, 0.12));
+        feltGrad.addColorStop(0.5, activeTable.felt);
+        feltGrad.addColorStop(1, darken(activeTable.felt, 0.14));
+        ctx.fillStyle = feltGrad;
+        ctx.fillRect(feltX, feltY, feltW, feltH);
+
+        ctx.strokeStyle = "rgba(255,255,255,0.06)";
+        ctx.lineWidth = 0.9;
+        for (let i = 1; i <= 14; i += 1) {
+          const y = feltY + (feltH * i) / 15;
+          ctx.beginPath();
+          ctx.moveTo(feltX, y);
+          ctx.lineTo(feltX + feltW, y);
+          ctx.stroke();
+        }
+
+        const headStringX = feltX + feltW * 0.26;
+        ctx.strokeStyle = "rgba(255,255,255,0.12)";
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(pocket.x, pocket.y, outerR, 0, Math.PI * 2);
+        ctx.moveTo(headStringX, feltY + 8);
+        ctx.lineTo(headStringX, feltY + feltH - 8);
         ctx.stroke();
 
-        if (pocket.kind === "corner") {
-          const jawOffset = pocketProfile.cornerCenterHalfOpen + state.table.ballRadius * 0.18;
-          const jawA = { x: pocket.x + pocket.edgeX * jawOffset, y: pocket.y };
-          const jawB = { x: pocket.x, y: pocket.y + pocket.edgeY * jawOffset };
-          drawPocketJaw(ctx, jawA.x, jawA.y, pocketProfile.cornerJawRadius);
-          drawPocketJaw(ctx, jawB.x, jawB.y, pocketProfile.cornerJawRadius);
-        } else {
-          const jawOffset = pocketProfile.sideCenterHalfOpen + state.table.ballRadius * 0.14;
-          const jawL = { x: pocket.x - jawOffset, y: pocket.y };
-          const jawR = { x: pocket.x + jawOffset, y: pocket.y };
-          drawPocketJaw(ctx, jawL.x, jawL.y, pocketProfile.sideJawRadius);
-          drawPocketJaw(ctx, jawR.x, jawR.y, pocketProfile.sideJawRadius);
+        ctx.fillStyle = "rgba(255,255,255,0.28)";
+        ctx.beginPath();
+        ctx.arc(headStringX, feltY + feltH * 0.5, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        const sights = [
+          [state.table.width * 0.18, state.table.rail * 0.5],
+          [state.table.width * 0.5, state.table.rail * 0.5],
+          [state.table.width * 0.82, state.table.rail * 0.5],
+          [state.table.width * 0.18, state.table.height - state.table.rail * 0.5],
+          [state.table.width * 0.5, state.table.height - state.table.rail * 0.5],
+          [state.table.width * 0.82, state.table.height - state.table.rail * 0.5],
+          [state.table.rail * 0.5, state.table.height * 0.26],
+          [state.table.rail * 0.5, state.table.height * 0.5],
+          [state.table.rail * 0.5, state.table.height * 0.74],
+          [state.table.width - state.table.rail * 0.5, state.table.height * 0.26],
+          [state.table.width - state.table.rail * 0.5, state.table.height * 0.5],
+          [state.table.width - state.table.rail * 0.5, state.table.height * 0.74]
+        ];
+        for (const [x, y] of sights) {
+          ctx.fillStyle = "rgba(248,228,181,0.74)";
+          ctx.beginPath();
+          ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        const pocketColor = activeTable.pocket;
+        const pocketDefs = getVisualPockets(state.table);
+        const pocketProfile = getPocketVisualProfile(state.table);
+        for (const pocket of pocketDefs) {
+          const outerR = pocket.kind === "corner" ? state.table.pocketRadius * 0.98 : state.table.pocketRadius * 0.9;
+          const innerR = outerR * 0.68;
+
+          ctx.beginPath();
+          const pocketGrad = ctx.createRadialGradient(
+            pocket.x - 2,
+            pocket.y - 2,
+            outerR * 0.16,
+            pocket.x,
+            pocket.y,
+            outerR
+          );
+          pocketGrad.addColorStop(0, brighten(pocketColor, 0.05));
+          pocketGrad.addColorStop(1, pocketColor);
+          ctx.fillStyle = pocketGrad;
+          ctx.arc(pocket.x, pocket.y, outerR, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.fillStyle = "rgba(0,0,0,0.65)";
+          ctx.arc(pocket.x, pocket.y, innerR, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.strokeStyle = "rgba(255,255,255,0.1)";
+          ctx.lineWidth = 1.15;
+          ctx.beginPath();
+          ctx.arc(pocket.x, pocket.y, outerR, 0, Math.PI * 2);
+          ctx.stroke();
+
+          if (pocket.kind === "corner") {
+            const jawOffset = pocketProfile.cornerCenterHalfOpen + state.table.ballRadius * 0.18;
+            const jawA = { x: pocket.x + pocket.edgeX * jawOffset, y: pocket.y };
+            const jawB = { x: pocket.x, y: pocket.y + pocket.edgeY * jawOffset };
+            drawPocketJaw(ctx, jawA.x, jawA.y, pocketProfile.cornerJawRadius);
+            drawPocketJaw(ctx, jawB.x, jawB.y, pocketProfile.cornerJawRadius);
+          } else {
+            const jawOffset = pocketProfile.sideCenterHalfOpen + state.table.ballRadius * 0.14;
+            const jawL = { x: pocket.x - jawOffset, y: pocket.y };
+            const jawR = { x: pocket.x + jawOffset, y: pocket.y };
+            drawPocketJaw(ctx, jawL.x, jawL.y, pocketProfile.sideJawRadius);
+            drawPocketJaw(ctx, jawR.x, jawR.y, pocketProfile.sideJawRadius);
+          }
         }
       }
 
@@ -672,6 +737,52 @@ function drawPocketJaw(ctx: CanvasRenderingContext2D, x: number, y: number, radi
   ctx.strokeStyle = "rgba(255,255,255,0.08)";
   ctx.lineWidth = 0.8;
   ctx.stroke();
+}
+
+function detectTableArtworkCrop(image: HTMLImageElement): { sx: number; sy: number; sw: number; sh: number } {
+  const w = image.naturalWidth;
+  const h = image.naturalHeight;
+  if (!w || !h) return { sx: 0, sy: 0, sw: 1, sh: 1 };
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return { sx: 0, sy: 0, sw: w, sh: h };
+  ctx.drawImage(image, 0, 0);
+  const data = ctx.getImageData(0, 0, w, h).data;
+
+  let minX = w;
+  let minY = h;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const i = (y * w + x) * 4;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const a = data[i + 3];
+      if (a < 10) continue;
+      if (r <= 8 && g <= 8 && b <= 8) continue;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+
+  if (maxX < minX || maxY < minY) {
+    return { sx: 0, sy: 0, sw: w, sh: h };
+  }
+
+  const pad = 2;
+  const sx = Math.max(0, minX - pad);
+  const sy = Math.max(0, minY - pad);
+  const sw = Math.min(w - sx, maxX - minX + pad * 2 + 1);
+  const sh = Math.min(h - sy, maxY - minY + pad * 2 + 1);
+  return { sx, sy, sw, sh };
 }
 
 function getOrCreateBallPose(store: Map<number, BallPose>, ball: BallState): BallPose {

@@ -23,58 +23,73 @@ export type TableSkin = {
   pocket: string;
   bgTop: string;
   bgBottom: string;
+  artwork?: string;
 };
 
 export const CUE_STYLES: CueStyle[] = Array.from(
   new Map<string, CueStyle>(CUE_CATALOG.map((cue: CueCatalogEntry) => [cue.id, { ...cue }])).values()
 );
 
-const FELT_TONES = [
-  "#136b45",
-  "#1d7b52",
-  "#1a5f8a",
-  "#0f6f70",
-  "#3f7448",
-  "#2f5f7a",
-  "#4a3c6e",
-  "#5f4f2f",
-  "#6d3f38",
-  "#304f3e"
+const TABLE_SKIN_ARTWORKS: Array<{ name: string; file: string }> = [
+  { name: "Royal Crown Noir", file: "01-royal-crown-noir.png" },
+  { name: "Celestial Clockwork", file: "02-celestial-clockwork.png" },
+  { name: "Grand Circus", file: "03-grand-circus.png" },
+  { name: "Marble Imperium", file: "04-marble-imperium.png" },
+  { name: "Tech Blueprint", file: "05-tech-blueprint.png" },
+  { name: "Arcade Neon", file: "06-arcade-neon.png" },
+  { name: "Tropical Tiki", file: "07-tropical-tiki.png" },
+  { name: "Emerald Enchanted", file: "08-emerald-enchanted.png" },
+  { name: "Spartan Legion", file: "09-spartan-legion.png" },
+  { name: "Art Deco Shell", file: "10-art-deco-shell.png" },
+  { name: "Cyber Vector", file: "11-cyber-vector.png" },
+  { name: "Vinyl Record", file: "12-vinyl-record.png" },
+  { name: "Astral Zodiac", file: "13-astral-zodiac.png" },
+  { name: "Aurora Frost", file: "14-aurora-frost.png" },
+  { name: "Biohazard Lab", file: "15-biohazard-lab.png" },
+  { name: "Street Play Graffiti", file: "16-street-play-graffiti.png" },
+  { name: "Abyssal Kraken", file: "17-abyssal-kraken.png" },
+  { name: "Royal Heraldry", file: "18-royal-heraldry.png" },
+  { name: "Sakura Wave", file: "19-sakura-wave.png" },
+  { name: "Crystal Prism", file: "20-crystal-prism.png" },
+  { name: "Gothic Cathedral", file: "21-gothic-cathedral.png" },
+  { name: "Card Royale", file: "22-card-royale.png" },
+  { name: "Pumpkin Night", file: "23-pumpkin-night.png" },
+  { name: "Western Pentagram", file: "24-western-pentagram.png" },
+  { name: "Industrial Grid", file: "25-industrial-grid.png" },
+  { name: "Infernal Sigil", file: "26-infernal-sigil.png" },
+  { name: "Retro Sunset", file: "27-retro-sunset.png" },
+  { name: "Zen Garden", file: "28-zen-garden.png" },
+  { name: "Alien Glyph", file: "29-alien-glyph.png" },
+  { name: "Pirate Compass", file: "30-pirate-compass.png" },
+  { name: "Viking Longship", file: "31-viking-longship.png" },
+  { name: "Pharaoh Scarab", file: "32-pharaoh-scarab.png" },
+  { name: "Candy Pastel", file: "33-candy-pastel.png" },
+  { name: "Midnight Eclipse", file: "34-midnight-eclipse.png" },
+  { name: "Frontier Star", file: "35-frontier-star.png" },
+  { name: "Dia De Los Muertos", file: "36-dia-de-los-muertos.png" },
+  { name: "Imperial Crown Blue", file: "37-imperial-crown-blue.png" },
+  { name: "Ocean Shell", file: "38-ocean-shell.png" },
+  { name: "Molten Compass", file: "39-molten-compass.png" },
+  { name: "Jungle Ruins", file: "40-jungle-ruins.png" },
+  { name: "Tiger Calligraphy", file: "41-tiger-calligraphy.png" },
+  { name: "Rusted Gears", file: "42-rusted-gears.png" },
+  { name: "Galactic Spiral", file: "43-galactic-spiral.png" },
+  { name: "Synth Core", file: "44-synth-core.png" },
+  { name: "Desert Oasis", file: "45-desert-oasis.png" },
+  { name: "Frozen Crystal", file: "46-frozen-crystal.png" },
+  { name: "Blackout Eight", file: "47-blackout-eight.png" },
+  { name: "Crimson Dragon", file: "48-crimson-dragon.png" },
+  { name: "Classic Crown Blue", file: "49-classic-crown-blue.png" },
+  { name: "Classic Green", file: "50-classic-green.png" }
 ];
 
-const RAIL_TONES = [
-  "#5a3c2b",
-  "#6f4a33",
-  "#4a2f23",
-  "#7b5a3e",
-  "#53362a",
-  "#6a3d2f",
-  "#734f35",
-  "#4f3328",
-  "#6b4f3b",
-  "#5c4336"
-];
-
-const BACKDROP_PAIRS: Array<{ top: string; bottom: string }> = [
-  { top: "#0b1620", bottom: "#111d2b" },
-  { top: "#101821", bottom: "#1a2330" },
-  { top: "#1a1310", bottom: "#281c18" },
-  { top: "#111014", bottom: "#1f1d25" },
-  { top: "#0e1514", bottom: "#17211f" },
-  { top: "#15110e", bottom: "#231b14" }
-];
-
-export const TABLE_SKINS: TableSkin[] = Array.from({ length: 50 }, (_, i) => {
-  const felt = FELT_TONES[i % FELT_TONES.length];
-  const rail = RAIL_TONES[(i * 3 + 2) % RAIL_TONES.length];
-  const back = BACKDROP_PAIRS[(i * 5 + 1) % BACKDROP_PAIRS.length];
-  return {
-    id: `table_${i + 1}`,
-    name: `Arena Felt ${i + 1}`,
-    felt,
-    rail,
-    pocket: "#0f0f10",
-    bgTop: back.top,
-    bgBottom: back.bottom
-  };
-});
+export const TABLE_SKINS: TableSkin[] = TABLE_SKIN_ARTWORKS.map((skin, index) => ({
+  id: `table_${index + 1}`,
+  name: skin.name,
+  felt: "#145f63",
+  rail: "#2f3138",
+  pocket: "#0e0e10",
+  bgTop: "#0b1118",
+  bgBottom: "#111a24",
+  artwork: `/table-skins/${skin.file}`
+}));
