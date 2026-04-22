@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CueStyle, TableSkin } from "@/game/rendering/customization";
 
 type Props = {
@@ -55,6 +55,16 @@ export function CustomizationMenu({
   const [tab, setTab] = useState<Tab>("cues");
   const cueCount = useMemo(() => cues.length, [cues]);
   const tableCount = useMemo(() => tables.length, [tables]);
+
+  useEffect(() => {
+    for (const cue of cues) {
+      if (!cue.artwork) continue;
+      const img = new Image();
+      img.decoding = "async";
+      img.src = cue.artwork;
+    }
+  }, [cues]);
+
   if (!open) return null;
 
   return (
@@ -104,13 +114,15 @@ export function CustomizationMenu({
                 return (
                   <div key={cue.id} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-2">
                     <div className="flex min-w-0 items-center gap-3">
-                      <div className="w-44 text-sm font-medium text-white">{cue.name}</div>
-                      <div className="relative h-12 w-full overflow-hidden rounded-lg border border-white/15 bg-gradient-to-r from-[#0b1322] via-[#101f35] to-[#0b1322]">
+                      <div className="w-44 truncate text-sm font-medium text-white">{cue.name}</div>
+                      <div className="relative h-14 w-full overflow-hidden rounded-lg border border-white/15 bg-gradient-to-r from-[#0b1322] via-[#101f35] to-[#0b1322]">
                         {cue.artwork ? (
                           <img
                             src={cue.artwork}
                             alt={cue.name}
-                            className="absolute inset-0 h-full w-full object-contain px-2 mix-blend-screen"
+                            className="absolute inset-0 h-full w-full object-contain mix-blend-screen"
+                            loading="eager"
+                            decoding="async"
                             draggable={false}
                           />
                         ) : (
