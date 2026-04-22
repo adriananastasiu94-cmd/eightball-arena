@@ -1,5 +1,5 @@
 import { TABLE } from "./constants";
-import { BallState, MatchState, PlayerState } from "./types";
+import { BallState, MatchState, PlayerState, TableConfig } from "./types";
 
 const rackOffsets = [
   [0, 0],
@@ -11,21 +11,21 @@ const rackOffsets = [
 
 const rackOrder = [1, 9, 2, 10, 8, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15];
 
-export function createInitialBalls(): BallState[] {
+export function createInitialBalls(table: TableConfig = TABLE): BallState[] {
   const balls: BallState[] = [];
   balls.push({
     id: 0,
     number: 0,
     kind: "cue",
-    pos: { x: TABLE.width * 0.25, y: TABLE.height * 0.5 },
+    pos: { x: table.width * 0.25, y: table.height * 0.5 },
     vel: { x: 0, y: 0 },
-    radius: TABLE.ballRadius,
+    radius: table.ballRadius,
     pocketed: false
   });
 
-  const apexX = TABLE.width * 0.72;
-  const apexY = TABLE.height * 0.5;
-  const spacing = TABLE.ballRadius * 2.08;
+  const apexX = table.width * 0.72;
+  const apexY = table.height * 0.5;
+  const spacing = table.ballRadius * 2.08;
 
   rackOrder.forEach((number, i) => {
     const [col, row] = rackOffsets[i];
@@ -39,7 +39,7 @@ export function createInitialBalls(): BallState[] {
         y: apexY + row * spacing
       },
       vel: { x: 0, y: 0 },
-      radius: TABLE.ballRadius,
+      radius: table.ballRadius,
       pocketed: false
     });
   });
@@ -47,7 +47,12 @@ export function createInitialBalls(): BallState[] {
   return balls;
 }
 
-export function createMatchState(matchId: string, players: [PlayerState, PlayerState]): MatchState {
+export function createMatchState(
+  matchId: string,
+  players: [PlayerState, PlayerState],
+  tableConfig: TableConfig = TABLE
+): MatchState {
+  const table = { ...tableConfig };
   return {
     matchId,
     players,
@@ -56,8 +61,8 @@ export function createMatchState(matchId: string, players: [PlayerState, PlayerS
     turnDeadlineMs: Date.now() + 30000,
     timeoutStrikes: [0, 0],
     phase: "breaking",
-    table: TABLE,
-    balls: createInitialBalls(),
+    table,
+    balls: createInitialBalls(table),
     ballInHand: false,
     shotInProgress: false,
     breakDone: false,

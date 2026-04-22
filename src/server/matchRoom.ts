@@ -1,5 +1,5 @@
 import { Server } from "socket.io";
-import { MatchState, PlayerState, ShotInput, ShotOutcome } from "@/game/types";
+import { MatchState, PlayerState, ShotInput, ShotOutcome, TableConfig } from "@/game/types";
 import { applyCueImpulse, simulateShot } from "@/game/physics/engine";
 import { applyOutcomeToTurn, adjudicateShot } from "@/game/rules/eightBallRules";
 import { createMatchState } from "@/game/state";
@@ -84,7 +84,8 @@ export class MatchRoom {
     private readonly players: [ConnectedPlayer, ConnectedPlayer],
     private readonly onFinished: (roomId: string) => void,
     private readonly stakeCoins: number,
-    private readonly potCoins: number
+    private readonly potCoins: number,
+    private readonly tableConfig?: TableConfig
   ) {
     this.id = `room_${Math.random().toString(36).slice(2, 10)}`;
     players.forEach((p) => this.socketsByUser.set(p.userId, p.socketId));
@@ -107,7 +108,7 @@ export class MatchRoom {
         profile: { wins: 0, losses: 0, matchesPlayed: 0, level: 1, region: "Global" }
       }
     ];
-    this.state = createMatchState(this.id, statePlayers);
+    this.state = createMatchState(this.id, statePlayers, this.tableConfig);
     this.resetTurnDeadline();
   }
 
@@ -513,7 +514,7 @@ export class MatchRoom {
         { ...this.state.players[0], group: null },
         { ...this.state.players[1], group: null }
       ];
-      this.state = createMatchState(this.id, players);
+      this.state = createMatchState(this.id, players, this.tableConfig);
       this.state.timeoutStrikes = [0, 0];
       this.resetTurnDeadline();
       this.rematchVotes.clear();

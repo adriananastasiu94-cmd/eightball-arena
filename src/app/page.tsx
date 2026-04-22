@@ -7,7 +7,7 @@ import { CustomizationMenu } from "@/components/CustomizationMenu";
 import { useArenaSocket } from "@/hooks/useArenaSocket";
 import { api } from "@/lib/api";
 import { arenaAudio } from "@/game/audio/audio";
-import { MatchState, PlayerState, ShotInput } from "@/game/types";
+import { MatchState, PlayerState, ShotInput, TableConfig } from "@/game/types";
 import { createMatchState } from "@/game/state";
 import { applyCueImpulse, simulateShot } from "@/game/physics/engine";
 import { adjudicateShot, applyOutcomeToTurn } from "@/game/rules/eightBallRules";
@@ -161,6 +161,7 @@ export default function HomePage() {
   const [selectedTournamentStake, setSelectedTournamentStake] = useState<number>(10);
   const [tournamentRun, setTournamentRun] = useState<TournamentRun | null>(null);
   const [menuNotice, setMenuNotice] = useState<string | null>(null);
+  const [liveTableConfig, setLiveTableConfig] = useState<TableConfig | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [winnerBalancePreview, setWinnerBalancePreview] = useState<number | null>(null);
   const handledResultMatchIdRef = useRef<string | null>(null);
@@ -224,6 +225,21 @@ export default function HomePage() {
   }, [me]);
 
   useEffect(() => {
+    if (!me) return;
+    let cancelled = false;
+    api<{ config: TableConfig }>("/api/admin/table-config")
+      .then((res) => {
+        if (!cancelled) setLiveTableConfig(res.config);
+      })
+      .catch(() => {
+        if (!cancelled) setLiveTableConfig(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [me]);
+
+  useEffect(() => {
     if (mode !== "sandbox" || !me || !sandboxSession) return;
     const players: [PlayerState, PlayerState] = [
       {
@@ -265,8 +281,8 @@ export default function HomePage() {
       }
     ];
     setLocalReplay(null);
-    setLocalState(createMatchState(`sandbox_${sandboxSession.key}`, players));
-  }, [mode, me, sandboxSession]);
+    setLocalState(createMatchState(`sandbox_${sandboxSession.key}`, players, liveTableConfig ?? undefined));
+  }, [mode, me, sandboxSession, liveTableConfig]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 100);
@@ -1032,6 +1048,14 @@ export default function HomePage() {
             <p className="text-xs text-white/65">Welcome back, {me.username}</p>
           </div>
           <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => {
+                window.location.href = "/table-tool";
+              }}
+              className="rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-white md:text-sm"
+            >
+              Table Tool
+            </button>
             <button
               onClick={() => {
                 arenaAudio.uiTap();

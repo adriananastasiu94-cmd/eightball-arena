@@ -2,6 +2,7 @@ import { Server } from "socket.io";
 import { MatchRoom } from "./matchRoom";
 import { prisma } from "@/lib/prisma";
 import { debitFallbackCoins, grantFallbackCoins } from "@/lib/fallbackWallet";
+import { getArenaTableConfig } from "@/lib/tableConfigStore";
 
 const ALLOWED_STAKES = [1, 2, 3, 5, 10, 25, 50, 100] as const;
 export type StakeValue = (typeof ALLOWED_STAKES)[number];
@@ -81,13 +82,14 @@ export class Matchmaker {
       return;
     }
 
+    const tableConfig = await getArenaTableConfig();
     const room = new MatchRoom(this.io, [p1, p2], (roomId) => {
       const done = this.rooms.get(roomId);
       if (done) {
         done.state.players.forEach((p) => this.roomByUser.delete(p.userId));
       }
       this.rooms.delete(roomId);
-    }, p1.stake, charged.potCoins);
+    }, p1.stake, charged.potCoins, tableConfig);
 
     this.rooms.set(room.id, room);
     this.roomByUser.set(p1.userId, room.id);

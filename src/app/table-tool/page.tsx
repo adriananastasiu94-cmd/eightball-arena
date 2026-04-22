@@ -1,0 +1,289 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "@/lib/api";
+import { TableConfig } from "@/game/types";
+
+type ConfigResponse = {
+  config: TableConfig;
+  canEdit?: boolean;
+};
+
+const FALLBACK_CONFIG: TableConfig = {
+  width: 1024,
+  height: 512,
+  rail: 36,
+  pocketRadius: 28,
+  ballRadius: 11
+};
+
+const BOUNDS = {
+  width: { min: 760, max: 1800, step: 1 },
+  height: { min: 380, max: 960, step: 1 },
+  rail: { min: 18, max: 120, step: 0.25 },
+  pocketRadius: { min: 12, max: 72, step: 0.25 },
+  ballRadius: { min: 8, max: 24, step: 0.25 }
+} as const;
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
+}
+
+function sanitizeConfig(config: TableConfig): TableConfig {
+  const width = clamp(config.width, BOUNDS.width.min, BOUNDS.width.max);
+  const height = clamp(config.height, BOUNDS.height.min, BOUNDS.height.max);
+  const ballRadius = clamp(config.ballRadius, BOUNDS.ballRadius.min, BOUNDS.ballRadius.max);
+  const maxRail = Math.min(BOUNDS.rail.max, Math.min(width, height) / 2 - ballRadius - 2);
+  const rail = clamp(config.rail, BOUNDS.rail.min, maxRail);
+  const pocketRadius = clamp(config.pocketRadius, BOUNDS.pocketRadius.min, Math.min(BOUNDS.pocketRadius.max, rail - 1));
+  return { width, height, rail, pocketRadius, ballRadius };
+}
+
+function pocketCenters(cfg: TableConfig): Array<{ x: number; y: number; label: string }> {
+  return [
+    { x: cfg.rail, y: cfg.rail, label: "TL" },
+    { x: cfg.width / 2, y: cfg.rail, label: "TM" },
+    { x: cfg.width - cfg.rail, y: cfg.rail, label: "TR" },
+    { x: cfg.rail, y: cfg.height - cfg.rail, label: "BL" },
+    { x: cfg.width / 2, y: cfg.height - cfg.rail, label: "BM" },
+    { x: cfg.width - cfg.rail, y: cfg.height - cfg.rail, label: "BR" }
+  ];
+}
+
+export default function TableToolPage() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [config, setConfig] = useState<TableConfig>(FALLBACK_CONFIG);
+  const [savedConfig, setSavedConfig] = useState<TableConfig>(FALLBACK_CONFIG);
+  const [canEdit, setCanEdit] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const dirty = useMemo(
+    () => JSON.stringify(config) !== JSON.stringify(savedConfig),
+    [config, savedConfig]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api<ConfigResponse>("/api/admin/table-config")
+      .then((res) => {
+        if (cancelled) return;
+        const normalized = sanitizeConfig(res.config);
+        setConfig(normalized);
+        setSavedConfig(normalized);
+        setCanEdit(Boolean(res.canEdit));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setMessage("Unable to load server table config. Showing local fallback.");
+        setConfig(FALLBACK_CONFIG);
+        setSavedConfig(FALLBACK_CONFIG);
+        setCanEdit(false);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const ratio = window.devicePixelRatio || 1;
+    const cssWidth = 1000;
+    const cssHeight = 560;
+    canvas.width = Math.floor(cssWidth * ratio);
+    canvas.height = Math.floor(cssHeight * ratio);
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
+    ctx.fillStyle = "#071521";
+    ctx.fillRect(0, 0, cssWidth, cssHeight);
+
+    const pad = 48;
+    const scale = Math.min(
+      (cssWidth - pad * 2) / config.width,
+      (cssHeight - pad * 2) / config.height
+    );
+    const drawW = config.width * scale;
+    const drawH = config.height * scale;
+    const originX = (cssWidth - drawW) / 2;
+    const originY = (cssHeight - drawH) / 2;
+    const rail = config.rail * scale;
+    const pocketRadius = config.pocketRadius * scale;
+
+    ctx.fillStyle = "#4a3528";
+    ctx.fillRect(originX, originY, drawW, drawH);
+
+    ctx.fillStyle = "#1e6c4b";
+    ctx.fillRect(originX + rail, originY + rail, drawW - rail * 2, drawH - rail * 2);
+
+    ctx.strokeStyle = "#9edbb6";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 6]);
+    ctx.strokeRect(originX + rail, originY + rail, drawW - rail * 2, drawH - rail * 2);
+    ctx.setLineDash([]);
+
+    const pockets = pocketCenters(config);
+    for (const p of pockets) {
+      const cx = originX + p.x * scale;
+      const cy = originY + p.y * scale;
+      ctx.beginPath();
+      ctx.arc(cx, cy, pocketRadius, 0, Math.PI * 2);
+      ctx.fillStyle = "#000";
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, pocketRadius + 5, 0, Math.PI * 2);
+      ctx.strokeStyle = "#ffcb6b";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.fillStyle = "#facc7d";
+      ctx.font = "12px ui-sans-serif, system-ui";
+      ctx.fillText(p.label, cx - 8, cy - pocketRadius - 10);
+    }
+
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.font = "13px ui-sans-serif, system-ui";
+    ctx.fillText(`Playable bounds: x [${config.rail}, ${Math.round(config.width - config.rail)}]`, originX, originY + drawH + 24);
+    ctx.fillText(`Pocket centers anchored at rail=${config.rail}`, originX, originY + drawH + 42);
+  }, [config]);
+
+  const setField = (key: keyof TableConfig, value: number) => {
+    setConfig((prev) => sanitizeConfig({ ...prev, [key]: value }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await api<{ ok: boolean; config: TableConfig }>("/api/admin/table-config", {
+        method: "POST",
+        body: JSON.stringify(config)
+      });
+      const normalized = sanitizeConfig(res.config);
+      setConfig(normalized);
+      setSavedConfig(normalized);
+      setMessage("Saved. New matches will use this table geometry.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = () => {
+    setConfig(savedConfig);
+    setMessage(null);
+  };
+
+  const fields: Array<{ key: keyof TableConfig; label: string }> = [
+    { key: "width", label: "Table Width" },
+    { key: "height", label: "Table Height" },
+    { key: "rail", label: "Rail Inset" },
+    { key: "pocketRadius", label: "Pocket Radius" },
+    { key: "ballRadius", label: "Ball Radius" }
+  ];
+
+  return (
+    <main className="mx-auto min-h-screen w-full max-w-[1300px] px-4 py-6 text-white">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Table Geometry Tool</h1>
+          <p className="text-sm text-white/70">
+            Edit cushions and pockets, then save server-wide defaults for all new matches.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              window.location.href = "/";
+            }}
+            className="rounded-md bg-white/10 px-4 py-2 text-sm"
+          >
+            Back To Game
+          </button>
+          <button
+            disabled={!dirty || saving || !canEdit}
+            onClick={handleSave}
+            className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-[#052311] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {saving ? "Saving..." : "Save For Everyone"}
+          </button>
+        </div>
+      </div>
+
+      {loading && <div className="mb-4 rounded-lg border border-white/15 bg-white/5 p-3 text-sm">Loading config...</div>}
+      {!canEdit && !loading && (
+        <div className="mb-4 rounded-lg border border-amber-300/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+          Your account can view this tool but cannot save. Add your email to `ADMIN_TABLE_EDITOR_EMAILS` (or `ADMIN_COIN_GRANT_EMAILS`) on Render to enable save.
+        </div>
+      )}
+      {message && <div className="mb-4 rounded-lg border border-white/15 bg-white/5 p-3 text-sm">{message}</div>}
+
+      <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
+        <section className="rounded-xl border border-white/10 bg-[#0d1b30] p-4">
+          <h2 className="mb-3 text-base font-semibold">Config</h2>
+          <div className="space-y-3">
+            {fields.map((field) => {
+              const bounds = BOUNDS[field.key];
+              return (
+                <label key={field.key} className="block">
+                  <div className="mb-1 flex items-center justify-between text-sm">
+                    <span>{field.label}</span>
+                    <input
+                      type="number"
+                      value={config[field.key]}
+                      min={bounds.min}
+                      max={bounds.max}
+                      step={bounds.step}
+                      disabled={!canEdit}
+                      onChange={(event) => setField(field.key, Number(event.target.value))}
+                      className="w-24 rounded border border-white/20 bg-black/30 px-2 py-1 text-right text-xs text-white disabled:opacity-60"
+                    />
+                  </div>
+                  <input
+                    type="range"
+                    value={config[field.key]}
+                    min={bounds.min}
+                    max={bounds.max}
+                    step={bounds.step}
+                    disabled={!canEdit}
+                    onChange={(event) => setField(field.key, Number(event.target.value))}
+                    className="w-full"
+                  />
+                </label>
+              );
+            })}
+          </div>
+          <button
+            onClick={handleReset}
+            disabled={!dirty}
+            className="mt-4 rounded-md bg-white/10 px-3 py-1.5 text-sm disabled:opacity-40"
+          >
+            Revert Unsaved
+          </button>
+        </section>
+
+        <section className="rounded-xl border border-white/10 bg-[#0d1b30] p-4">
+          <h2 className="mb-3 text-base font-semibold">Wall And Pocket Overlay</h2>
+          <div className="overflow-x-auto rounded-lg border border-white/10 bg-[#071521] p-2">
+            <canvas ref={canvasRef} />
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
