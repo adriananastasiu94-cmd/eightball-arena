@@ -2,6 +2,10 @@
   "name": "eightball-arena",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": "20.x",
+    "npm": "10.x"
+  },
   "scripts": {
     "dev": "tsx server.ts",
     "build": "next build",
