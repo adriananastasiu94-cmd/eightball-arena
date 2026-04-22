@@ -7,8 +7,10 @@ export type CueStyle = {
   price: number;
   currency: "coins" | "cash";
   group: "standard" | "premium" | "country";
-  countryTheme: string;
+  rarity: "Common" | "Rare" | "Epic" | "Legendary";
+  countryTheme?: string;
   flagColors: [string, string, string];
+  artwork?: string;
   butt: string;
   shaft: string;
   tip: string;

@@ -96,7 +96,7 @@ export function CustomizationMenu({
           <div className="max-h-[65vh] overflow-y-auto p-3">
             <div className="space-y-2">
               {cues.map((cue, idx) => {
-                const rarity = rarityForIndex(idx + 1);
+                const rarity = cue.rarity ?? rarityForIndex(idx + 1);
                 const equipped = idx === selectedCueIndex;
                 const owned = ownedCueIds.includes(cue.id);
                 const canAfford = cue.currency === "coins" ? coins >= cue.price : cash >= cue.price;
@@ -104,6 +104,14 @@ export function CustomizationMenu({
                 return (
                   <div key={cue.id} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-2">
                     <div className="flex min-w-0 items-center gap-3">
+                      <div className="h-8 w-20 flex-none overflow-hidden rounded border border-white/15 bg-black/30">
+                        {cue.artwork ? (
+                          <div
+                            className="h-full w-full bg-contain bg-center bg-no-repeat"
+                            style={{ backgroundImage: `url(${cue.artwork})` }}
+                          />
+                        ) : null}
+                      </div>
                       <div className="w-36 text-sm font-medium text-white">{cue.name}</div>
                       <div className="relative h-3.5 w-full rounded-full border border-white/15 bg-[#dadde0]">
                         <div className="absolute left-[1%] top-1/2 h-2.5 w-[14%] -translate-y-1/2 rounded-full bg-[#5a3a1f]" />
@@ -124,12 +132,16 @@ export function CustomizationMenu({
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="rounded-md border border-white/20 bg-white/10 px-2 py-0.5 text-[11px] text-white/85">{cue.countryTheme}</span>
-                      <div className="flex items-center overflow-hidden rounded border border-white/20">
-                        {cue.flagColors.map((color) => (
-                          <span key={`${cue.id}-${color}`} className="h-3 w-3" style={{ backgroundColor: color }} />
-                        ))}
-                      </div>
+                      {cue.countryTheme ? (
+                        <>
+                          <span className="rounded-md border border-white/20 bg-white/10 px-2 py-0.5 text-[11px] text-white/85">{cue.countryTheme}</span>
+                          <div className="flex items-center overflow-hidden rounded border border-white/20">
+                            {cue.flagColors.map((color) => (
+                              <span key={`${cue.id}-${color}`} className="h-3 w-3" style={{ backgroundColor: color }} />
+                            ))}
+                          </div>
+                        </>
+                      ) : null}
                       <span className="rounded-md border border-white/20 bg-white/10 px-2 py-0.5 text-[11px] text-white/85">
                         {cue.price.toLocaleString()} {cue.currency === "coins" ? "coins" : "cash"}
                       </span>

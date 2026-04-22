@@ -107,6 +107,7 @@ export function GameCanvas({
     price: 0,
     currency: "coins" as const,
     group: "standard" as const,
+    rarity: "Common" as const,
     countryTheme: "Arena",
     flagColors: ["#d04b42", "#f5f5f5", "#2e5fbd"] as [string, string, string],
     butt: ARENA_THEME.cueStick,
