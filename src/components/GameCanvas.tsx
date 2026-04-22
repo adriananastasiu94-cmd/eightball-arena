@@ -43,7 +43,17 @@ type TableArtworkAsset = {
   url: string;
   image: HTMLImageElement;
   crop: { sx: number; sy: number; sw: number; sh: number };
+  anchors: TableArtworkAnchors | null;
   loaded: boolean;
+};
+
+type TableArtworkAnchors = {
+  tl: { x: number; y: number };
+  tm: { x: number; y: number };
+  tr: { x: number; y: number };
+  bl: { x: number; y: number };
+  bm: { x: number; y: number };
+  br: { x: number; y: number };
 };
 
 const BG_GRAD = ["#081318", "#0d1b2a"];
@@ -144,10 +154,12 @@ export function GameCanvas({
     image.decoding = "async";
     image.onload = () => {
       if (cancelled) return;
+      const crop = detectTableArtworkCrop(image);
       tableArtworkRef.current = {
         url,
         image,
-        crop: detectTableArtworkCrop(image),
+        crop,
+        anchors: detectTableArtworkAnchors(image, crop),
         loaded: true
       };
     };
@@ -160,6 +172,7 @@ export function GameCanvas({
       url,
       image,
       crop: { sx: 0, sy: 0, sw: 1, sh: 1 },
+      anchors: null,
       loaded: false
     };
 
@@ -229,6 +242,7 @@ export function GameCanvas({
         Boolean(activeTable.artwork) &&
         Boolean(artwork?.loaded) &&
         artwork?.url === activeTable.artwork;
+      const artworkDraw = useArtwork && artwork ? computeArtworkDrawRect(artwork, state.table) : null;
 
       ctx.clearRect(0, 0, width, height);
 
@@ -242,7 +256,7 @@ export function GameCanvas({
       ctx.translate(ox, oy);
       ctx.scale(scale, scale);
 
-      if (useArtwork && artwork) {
+      if (artworkDraw && artwork) {
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
         ctx.drawImage(
@@ -251,10 +265,10 @@ export function GameCanvas({
           artwork.crop.sy,
           artwork.crop.sw,
           artwork.crop.sh,
-          0,
-          0,
-          state.table.width,
-          state.table.height
+          artworkDraw.dx,
+          artworkDraw.dy,
+          artworkDraw.dw,
+          artworkDraw.dh
         );
       } else {
         const railGrad = ctx.createLinearGradient(0, 0, 0, state.table.height);
@@ -783,6 +797,219 @@ function detectTableArtworkCrop(image: HTMLImageElement): { sx: number; sy: numb
   const sw = Math.min(w - sx, maxX - minX + pad * 2 + 1);
   const sh = Math.min(h - sy, maxY - minY + pad * 2 + 1);
   return { sx, sy, sw, sh };
+}
+
+function detectTableArtworkAnchors(
+  image: HTMLImageElement,
+  crop: { sx: number; sy: number; sw: number; sh: number }
+): TableArtworkAnchors | null {
+  const sw = Math.max(1, Math.floor(crop.sw));
+  const sh = Math.max(1, Math.floor(crop.sh));
+  const canvas = document.createElement("canvas");
+  canvas.width = sw;
+  canvas.height = sh;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  ctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, sw, sh);
+  const data = ctx.getImageData(0, 0, sw, sh).data;
+
+  const tl = detectPocketCenterInBox(data, sw, sh, { x0: 0.0, x1: 0.3, y0: 0.0, y1: 0.34 });
+  const tm = detectPocketCenterInBox(data, sw, sh, { x0: 0.34, x1: 0.66, y0: 0.0, y1: 0.28 });
+  const tr = detectPocketCenterInBox(data, sw, sh, { x0: 0.7, x1: 1.0, y0: 0.0, y1: 0.34 });
+  const bl = detectPocketCenterInBox(data, sw, sh, { x0: 0.0, x1: 0.3, y0: 0.66, y1: 1.0 });
+  const bm = detectPocketCenterInBox(data, sw, sh, { x0: 0.34, x1: 0.66, y0: 0.72, y1: 1.0 });
+  const br = detectPocketCenterInBox(data, sw, sh, { x0: 0.7, x1: 1.0, y0: 0.66, y1: 1.0 });
+  if (!tl || !tm || !tr || !bl || !bm || !br) return null;
+
+  return { tl, tm, tr, bl, bm, br };
+}
+
+function detectPocketCenterInBox(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  bounds: { x0: number; x1: number; y0: number; y1: number }
+): { x: number; y: number } | null {
+  const minX = Math.max(0, Math.floor(bounds.x0 * width));
+  const maxX = Math.min(width - 1, Math.ceil(bounds.x1 * width));
+  const minY = Math.max(0, Math.floor(bounds.y0 * height));
+  const maxY = Math.min(height - 1, Math.ceil(bounds.y1 * height));
+  if (minX >= maxX || minY >= maxY) return null;
+
+  let seedX = minX;
+  let seedY = minY;
+  let minLum = Number.POSITIVE_INFINITY;
+  for (let y = minY; y <= maxY; y += 1) {
+    for (let x = minX; x <= maxX; x += 1) {
+      const i = (y * width + x) * 4;
+      const a = data[i + 3];
+      if (a < 12) continue;
+      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      if (lum < minLum) {
+        minLum = lum;
+        seedX = x;
+        seedY = y;
+      }
+    }
+  }
+  if (!Number.isFinite(minLum)) return null;
+
+  const tryThresholds = [Math.min(74, minLum + 22), Math.min(92, minLum + 38)];
+  const maxRadius = Math.min(width, height) * 0.13;
+  let best:
+    | {
+        count: number;
+        sumX: number;
+        sumY: number;
+      }
+    | null = null;
+  for (const threshold of tryThresholds) {
+    const region = floodDarkRegion(
+      data,
+      width,
+      height,
+      seedX,
+      seedY,
+      threshold,
+      minX,
+      maxX,
+      minY,
+      maxY,
+      maxRadius
+    );
+    if (!best || region.count > best.count) best = region;
+    if (region.count >= 80) break;
+  }
+
+  if (!best || best.count < 16) {
+    return { x: seedX, y: seedY };
+  }
+
+  const cx = best.sumX / best.count;
+  const cy = best.sumY / best.count;
+  if (!Number.isFinite(cx) || !Number.isFinite(cy)) return { x: seedX, y: seedY };
+  return { x: cx, y: cy };
+}
+
+function floodDarkRegion(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  seedX: number,
+  seedY: number,
+  threshold: number,
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number,
+  maxRadius: number
+): { count: number; sumX: number; sumY: number } {
+  const visited = new Uint8Array(width * height);
+  const stackX: number[] = [seedX];
+  const stackY: number[] = [seedY];
+  const maxRadiusSq = maxRadius * maxRadius;
+  let count = 0;
+  let sumX = 0;
+  let sumY = 0;
+
+  while (stackX.length > 0) {
+    const x = stackX.pop()!;
+    const y = stackY.pop()!;
+    if (x < minX || x > maxX || y < minY || y > maxY) continue;
+    const idx = y * width + x;
+    if (visited[idx] === 1) continue;
+    visited[idx] = 1;
+
+    const dx = x - seedX;
+    const dy = y - seedY;
+    if (dx * dx + dy * dy > maxRadiusSq) continue;
+
+    const i = idx * 4;
+    const a = data[i + 3];
+    if (a < 12) continue;
+    const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    if (lum > threshold) continue;
+
+    count += 1;
+    sumX += x;
+    sumY += y;
+
+    stackX.push(x + 1, x - 1, x, x);
+    stackY.push(y, y, y + 1, y - 1);
+  }
+
+  return { count, sumX, sumY };
+}
+
+function computeArtworkDrawRect(
+  artwork: TableArtworkAsset,
+  table: MatchState["table"]
+): { dx: number; dy: number; dw: number; dh: number } {
+  const defaultRect = { dx: 0, dy: 0, dw: table.width, dh: table.height };
+  if (!artwork.anchors) return defaultRect;
+
+  const leftTarget = table.rail;
+  const rightTarget = table.width - table.rail;
+  const midTarget = table.width / 2;
+  const topTarget = table.rail;
+  const bottomTarget = table.height - table.rail;
+
+  const fitX = fitLinear1D([
+    { source: artwork.anchors.tl.x, target: leftTarget },
+    { source: artwork.anchors.bl.x, target: leftTarget },
+    { source: artwork.anchors.tm.x, target: midTarget },
+    { source: artwork.anchors.bm.x, target: midTarget },
+    { source: artwork.anchors.tr.x, target: rightTarget },
+    { source: artwork.anchors.br.x, target: rightTarget }
+  ]);
+  const fitY = fitLinear1D([
+    { source: artwork.anchors.tl.y, target: topTarget },
+    { source: artwork.anchors.tm.y, target: topTarget },
+    { source: artwork.anchors.tr.y, target: topTarget },
+    { source: artwork.anchors.bl.y, target: bottomTarget },
+    { source: artwork.anchors.bm.y, target: bottomTarget },
+    { source: artwork.anchors.br.y, target: bottomTarget }
+  ]);
+  if (!fitX || !fitY) return defaultRect;
+  if (!Number.isFinite(fitX.scale) || !Number.isFinite(fitY.scale)) return defaultRect;
+  if (fitX.scale <= 0 || fitY.scale <= 0) return defaultRect;
+  if (fitX.scale < 0.35 || fitX.scale > 2.8 || fitY.scale < 0.35 || fitY.scale > 2.8) return defaultRect;
+
+  return {
+    dx: fitX.offset,
+    dy: fitY.offset,
+    dw: artwork.crop.sw * fitX.scale,
+    dh: artwork.crop.sh * fitY.scale
+  };
+}
+
+function fitLinear1D(
+  samples: Array<{ source: number; target: number }>
+): { scale: number; offset: number } | null {
+  if (samples.length < 2) return null;
+  let meanS = 0;
+  let meanT = 0;
+  for (const sample of samples) {
+    meanS += sample.source;
+    meanT += sample.target;
+  }
+  meanS /= samples.length;
+  meanT /= samples.length;
+
+  let varS = 0;
+  let covST = 0;
+  for (const sample of samples) {
+    const ds = sample.source - meanS;
+    const dt = sample.target - meanT;
+    varS += ds * ds;
+    covST += ds * dt;
+  }
+  if (varS < 1e-6) return null;
+
+  const scale = covST / varS;
+  const offset = meanT - scale * meanS;
+  return { scale, offset };
 }
 
 function getOrCreateBallPose(store: Map<number, BallPose>, ball: BallState): BallPose {
