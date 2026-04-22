@@ -47,6 +47,12 @@ type TableArtworkAsset = {
   loaded: boolean;
 };
 
+type CueArtworkAsset = {
+  url: string;
+  image: HTMLImageElement;
+  loaded: boolean;
+};
+
 type TableArtworkAnchors = {
   tl: { x: number; y: number };
   tm: { x: number; y: number };
@@ -92,6 +98,7 @@ export function GameCanvas({
   const ballPoseRef = useRef<Map<number, BallPose>>(new Map());
   const replayDoneRef = useRef<Props["onReplayDone"]>(onReplayDone);
   const tableArtworkRef = useRef<TableArtworkAsset | null>(null);
+  const cueArtworkRef = useRef<CueArtworkAsset | null>(null);
   const cuePlacementRaf = useRef<number | null>(null);
   const pendingCuePlacementRef = useRef<{ x: number; y: number } | null>(null);
   const aimingPointerRef = useRef<number | null>(null);
@@ -190,6 +197,31 @@ export function GameCanvas({
       cancelled = true;
     };
   }, [activeTable.artwork]);
+
+  useEffect(() => {
+    const url = activeCue.artwork;
+    if (!url) {
+      cueArtworkRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => {
+      if (cancelled) return;
+      cueArtworkRef.current = { url, image, loaded: true };
+    };
+    image.onerror = () => {
+      if (cancelled) return;
+      cueArtworkRef.current = null;
+    };
+    image.src = url;
+    cueArtworkRef.current = { url, image, loaded: false };
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCue.artwork]);
 
   useEffect(() => {
     ballPoseRef.current.clear();
@@ -456,44 +488,14 @@ export function GameCanvas({
           ctx.stroke();
         }
 
-        ctx.strokeStyle = activeCue.butt;
-        ctx.lineWidth = 5.5;
-        ctx.beginPath();
-        ctx.moveTo(cue.pos.x - Math.cos(liveAim.angle) * 26, cue.pos.y - Math.sin(liveAim.angle) * 26);
-        ctx.lineTo(
-          cue.pos.x - Math.cos(liveAim.angle) * (220 + displayPower * 40),
-          cue.pos.y - Math.sin(liveAim.angle) * (220 + displayPower * 40)
+        drawCueStick(
+          ctx,
+          cue,
+          liveAim.angle,
+          displayPower,
+          activeCue,
+          cueArtworkRef.current && cueArtworkRef.current.loaded ? cueArtworkRef.current.image : null
         );
-        ctx.stroke();
-
-        ctx.strokeStyle = "#e8ebef";
-        ctx.lineWidth = 3.6;
-        ctx.beginPath();
-        ctx.moveTo(cue.pos.x - Math.cos(liveAim.angle) * 30, cue.pos.y - Math.sin(liveAim.angle) * 30);
-        ctx.lineTo(
-          cue.pos.x - Math.cos(liveAim.angle) * (190 + displayPower * 30),
-          cue.pos.y - Math.sin(liveAim.angle) * (190 + displayPower * 30)
-        );
-        ctx.stroke();
-
-        ctx.strokeStyle = "#090d13";
-        ctx.lineWidth = 3.8;
-        ctx.beginPath();
-        ctx.moveTo(cue.pos.x - Math.cos(liveAim.angle) * 170, cue.pos.y - Math.sin(liveAim.angle) * 170);
-        ctx.lineTo(cue.pos.x - Math.cos(liveAim.angle) * 155, cue.pos.y - Math.sin(liveAim.angle) * 155);
-        ctx.stroke();
-
-        const flagBandStarts = [108, 124, 140];
-        for (let i = 0; i < activeCue.flagColors.length; i += 1) {
-          const start = flagBandStarts[i] ?? 98 + i * 16;
-          const end = start + 16;
-          ctx.strokeStyle = activeCue.flagColors[i];
-          ctx.lineWidth = 3.2;
-          ctx.beginPath();
-          ctx.moveTo(cue.pos.x - Math.cos(liveAim.angle) * start, cue.pos.y - Math.sin(liveAim.angle) * start);
-          ctx.lineTo(cue.pos.x - Math.cos(liveAim.angle) * end, cue.pos.y - Math.sin(liveAim.angle) * end);
-          ctx.stroke();
-        }
       }
 
       if (cue && !isMyTurn && remoteAim?.active && !state.shotInProgress) {
@@ -509,18 +511,15 @@ export function GameCanvas({
         ctx.stroke();
         ctx.setLineDash([]);
 
-        ctx.strokeStyle = "rgba(230,247,255,0.72)";
-        ctx.lineWidth = 4.8;
-        ctx.beginPath();
-        ctx.moveTo(
-          cue.pos.x - Math.cos(remoteAim.angle) * 22,
-          cue.pos.y - Math.sin(remoteAim.angle) * 22
+        drawCueStick(
+          ctx,
+          cue,
+          remoteAim.angle,
+          remoteAim.power,
+          activeCue,
+          cueArtworkRef.current && cueArtworkRef.current.loaded ? cueArtworkRef.current.image : null,
+          0.86
         );
-        ctx.lineTo(
-          cue.pos.x - Math.cos(remoteAim.angle) * (178 + remoteAim.power * 48),
-          cue.pos.y - Math.sin(remoteAim.angle) * (178 + remoteAim.power * 48)
-        );
-        ctx.stroke();
       }
 
       const renderBalls = sampleReplayBalls(replay, Date.now()) ?? state.balls;
@@ -1270,6 +1269,66 @@ function colorForBall(number: number): string {
     default:
       return ARENA_THEME.solid;
   }
+}
+
+function drawCueStick(
+  ctx: CanvasRenderingContext2D,
+  cueBall: BallState,
+  angle: number,
+  power: number,
+  cueStyle: CueStyle,
+  artwork: HTMLImageElement | null,
+  alpha = 0.96
+) {
+  const tipInset = 26;
+  const cueLength = 210 + power * 58;
+
+  if (artwork && artwork.naturalWidth > 0 && artwork.naturalHeight > 0) {
+    const drawLen = cueLength + 36;
+    const drawHeight = 18;
+    const endX = -tipInset;
+    const startX = endX - drawLen;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(cueBall.pos.x, cueBall.pos.y);
+    ctx.rotate(angle);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(artwork, startX, -drawHeight / 2, drawLen, drawHeight);
+    ctx.restore();
+    return;
+  }
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = cueStyle.butt;
+  ctx.lineWidth = 5.5;
+  ctx.beginPath();
+  ctx.moveTo(cueBall.pos.x - Math.cos(angle) * tipInset, cueBall.pos.y - Math.sin(angle) * tipInset);
+  ctx.lineTo(
+    cueBall.pos.x - Math.cos(angle) * (cueLength + 18),
+    cueBall.pos.y - Math.sin(angle) * (cueLength + 18)
+  );
+  ctx.stroke();
+
+  ctx.strokeStyle = "#e8ebef";
+  ctx.lineWidth = 3.6;
+  ctx.beginPath();
+  ctx.moveTo(cueBall.pos.x - Math.cos(angle) * (tipInset + 4), cueBall.pos.y - Math.sin(angle) * (tipInset + 4));
+  ctx.lineTo(
+    cueBall.pos.x - Math.cos(angle) * (cueLength - 10),
+    cueBall.pos.y - Math.sin(angle) * (cueLength - 10)
+  );
+  ctx.stroke();
+
+  ctx.strokeStyle = "#090d13";
+  ctx.lineWidth = 3.8;
+  ctx.beginPath();
+  ctx.moveTo(cueBall.pos.x - Math.cos(angle) * (cueLength - 16), cueBall.pos.y - Math.sin(angle) * (cueLength - 16));
+  ctx.lineTo(cueBall.pos.x - Math.cos(angle) * (cueLength - 2), cueBall.pos.y - Math.sin(angle) * (cueLength - 2));
+  ctx.stroke();
+  ctx.restore();
 }
 
 function norm(v: { x: number; y: number }): { x: number; y: number } {

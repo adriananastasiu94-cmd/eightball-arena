@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { CueStyle, TableSkin } from "@/game/rendering/customization";
 
 type Props = {
@@ -55,16 +55,6 @@ export function CustomizationMenu({
   const [tab, setTab] = useState<Tab>("cues");
   const cueCount = useMemo(() => cues.length, [cues]);
   const tableCount = useMemo(() => tables.length, [tables]);
-
-  useEffect(() => {
-    for (const cue of cues) {
-      if (!cue.artwork) continue;
-      const img = new Image();
-      img.decoding = "async";
-      img.src = cue.artwork;
-    }
-  }, [cues]);
-
   if (!open) return null;
 
   return (
@@ -116,12 +106,12 @@ export function CustomizationMenu({
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="w-44 truncate text-sm font-medium text-white">{cue.name}</div>
                       <div className="relative h-14 w-full overflow-hidden rounded-lg border border-white/15 bg-gradient-to-r from-[#0b1322] via-[#101f35] to-[#0b1322]">
-                        {cue.artwork ? (
+                        {cue.previewArtwork || cue.artwork ? (
                           <img
-                            src={cue.artwork}
+                            src={cue.previewArtwork ?? cue.artwork}
                             alt={cue.name}
                             className="absolute inset-0 h-full w-full object-contain mix-blend-screen"
-                            loading="eager"
+                            loading="lazy"
                             decoding="async"
                             draggable={false}
                           />
@@ -196,11 +186,15 @@ export function CustomizationMenu({
                       <div className="truncate text-sm font-medium text-white">{skin.name}</div>
                       <span className={`rounded-md border px-2 py-0.5 text-[11px] ${rarityClass(rarity)}`}>{rarity}</span>
                     </div>
-                    {skin.artwork ? (
-                      <div className="mb-2 h-24 overflow-hidden rounded-lg border border-white/15">
-                        <div
-                          className="h-full w-full bg-cover bg-center"
-                          style={{ backgroundImage: `url(${skin.artwork})` }}
+                    {skin.previewArtwork || skin.artwork ? (
+                      <div className="mb-2 h-28 overflow-hidden rounded-lg border border-white/15 bg-[#0a162b]">
+                        <img
+                          src={skin.previewArtwork ?? skin.artwork}
+                          alt={skin.name}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                          decoding="async"
+                          draggable={false}
                         />
                       </div>
                     ) : (

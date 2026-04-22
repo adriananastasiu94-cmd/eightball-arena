@@ -1,4 +1,5 @@
 import { CUE_CATALOG, CueCatalogEntry } from "@/lib/shopCues";
+import { optimizeMediaUrl } from "@/lib/mediaCdn";
 
 export type CueStyle = {
   id: string;
@@ -11,6 +12,7 @@ export type CueStyle = {
   countryTheme?: string;
   flagColors: [string, string, string];
   artwork?: string;
+  previewArtwork?: string;
   butt: string;
   shaft: string;
   tip: string;
@@ -26,11 +28,23 @@ export type TableSkin = {
   bgTop: string;
   bgBottom: string;
   artwork?: string;
+  previewArtwork?: string;
 };
 
-export const CUE_STYLES: CueStyle[] = Array.from(
-  new Map<string, CueStyle>(CUE_CATALOG.map((cue: CueCatalogEntry) => [cue.id, { ...cue }])).values()
-);
+export const CUE_STYLES: CueStyle[] = Array.from(new Map<string, CueStyle>(
+  CUE_CATALOG.map((cue: CueCatalogEntry) => [
+    cue.id,
+    {
+      ...cue,
+      artwork: cue.artwork ? optimizeMediaUrl(cue.artwork, { width: 1600, fit: "contain" }) : cue.artwork,
+      previewArtwork: optimizeMediaUrl(cue.previewArtwork ?? cue.artwork ?? "", {
+        width: 900,
+        height: 220,
+        fit: "contain"
+      })
+    }
+  ])
+).values());
 
 const TABLE_SKIN_ARTWORKS: Array<{ name: string; file: string }> = [
   { name: "Royal Crown Noir", file: "01-royal-crown-noir.png" },
@@ -93,5 +107,10 @@ export const TABLE_SKINS: TableSkin[] = TABLE_SKIN_ARTWORKS.map((skin, index) =>
   pocket: "#0e0e10",
   bgTop: "#0b1118",
   bgBottom: "#111a24",
-  artwork: `/table-skins/${skin.file}`
+  artwork: optimizeMediaUrl(`/table-skins/${skin.file}`, { width: 1920, fit: "cover" }),
+  previewArtwork: optimizeMediaUrl(`/table-skins/previews/${skin.file.replace(".png", ".webp")}`, {
+    width: 640,
+    height: 360,
+    fit: "cover"
+  })
 }));
