@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 const DEFAULT_TABLE_CONFIG: TableConfig = { ...TABLE };
 const DEFAULT_ARTWORK_ALIGNMENT = {
   scale: 1,
+  scaleX: 1,
+  scaleY: 1,
   offsetX: 0,
   offsetY: 0
 } as const;
@@ -33,6 +35,8 @@ function round2(n: number): number {
 
 export type TableArtworkAlignment = {
   scale: number;
+  scaleX: number;
+  scaleY: number;
   offsetX: number;
   offsetY: number;
 };
@@ -82,11 +86,15 @@ export function normalizeTableConfig(input: unknown): TableConfig {
 
 export function normalizeTableArtworkAlignment(input: unknown): TableArtworkAlignment {
   const src = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
-  const scale = clamp(toFiniteNumber(src.scale) ?? DEFAULT_ARTWORK_ALIGNMENT.scale, 0.72, 1.35);
+  const legacyScale = clamp(toFiniteNumber(src.scale) ?? DEFAULT_ARTWORK_ALIGNMENT.scale, 0.72, 1.35);
+  const scaleX = clamp(toFiniteNumber(src.scaleX) ?? legacyScale, 0.72, 1.35);
+  const scaleY = clamp(toFiniteNumber(src.scaleY) ?? legacyScale, 0.72, 1.35);
   const offsetX = clamp(toFiniteNumber(src.offsetX) ?? DEFAULT_ARTWORK_ALIGNMENT.offsetX, -220, 220);
   const offsetY = clamp(toFiniteNumber(src.offsetY) ?? DEFAULT_ARTWORK_ALIGNMENT.offsetY, -160, 160);
   return {
-    scale: round2(scale),
+    scale: round2(legacyScale),
+    scaleX: round2(scaleX),
+    scaleY: round2(scaleY),
     offsetX: round2(offsetX),
     offsetY: round2(offsetY)
   };

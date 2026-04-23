@@ -19,6 +19,8 @@ type Props = {
   tableSkin?: TableSkin;
   tableArtworkAdjust?: {
     scale: number;
+    scaleX: number;
+    scaleY: number;
     offsetX: number;
     offsetY: number;
   };
@@ -994,6 +996,8 @@ function computeArtworkDrawRect(
   table: MatchState["table"],
   adjust?: {
     scale: number;
+    scaleX: number;
+    scaleY: number;
     offsetX: number;
     offsetY: number;
   }
@@ -1001,8 +1005,8 @@ function computeArtworkDrawRect(
   const defaultRect = { dx: 0, dy: 0, dw: table.width, dh: table.height };
   if (!artwork.anchors) {
     if (!adjust) return defaultRect;
-    const scaledW = table.width * adjust.scale;
-    const scaledH = table.height * adjust.scale;
+    const scaledW = table.width * (Number.isFinite(adjust.scaleX) ? adjust.scaleX : adjust.scale);
+    const scaledH = table.height * (Number.isFinite(adjust.scaleY) ? adjust.scaleY : adjust.scale);
     return {
       dx: (table.width - scaledW) * 0.5 + adjust.offsetX,
       dy: (table.height - scaledH) * 0.5 + adjust.offsetY,
@@ -1045,8 +1049,8 @@ function computeArtworkDrawRect(
   if (!adjust) return fitted;
   const centerX = fitted.dx + fitted.dw * 0.5;
   const centerY = fitted.dy + fitted.dh * 0.5;
-  const scaledW = fitted.dw * adjust.scale;
-  const scaledH = fitted.dh * adjust.scale;
+  const scaledW = fitted.dw * (Number.isFinite(adjust.scaleX) ? adjust.scaleX : adjust.scale);
+  const scaledH = fitted.dh * (Number.isFinite(adjust.scaleY) ? adjust.scaleY : adjust.scale);
   return {
     dx: centerX - scaledW * 0.5 + adjust.offsetX,
     dy: centerY - scaledH * 0.5 + adjust.offsetY,

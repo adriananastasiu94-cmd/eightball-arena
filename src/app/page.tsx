@@ -233,7 +233,9 @@ export default function HomePage() {
       .then((res) => {
         if (cancelled) return;
         setLiveTableConfig(res.config);
-        setLiveArtworkAdjust(res.artwork ?? { scale: 1, offsetX: 0, offsetY: 0 });
+        setLiveArtworkAdjust(
+          res.artwork ?? { scale: 1, scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 }
+        );
       })
       .catch(() => {
         if (cancelled) return;

@@ -21,6 +21,8 @@ const FALLBACK_CONFIG: TableConfig = {
 };
 const FALLBACK_ARTWORK: TableArtworkAlignment = {
   scale: 1,
+  scaleX: 1,
+  scaleY: 1,
   offsetX: 0,
   offsetY: 0
 };
@@ -30,6 +32,8 @@ const BOUNDS = {
   pocketRadius: { min: 12, max: 72, step: 0.25 },
   ballRadius: { min: 8, max: 24, step: 0.25 },
   artworkScale: { min: 0.72, max: 1.35, step: 0.005 },
+  artworkScaleX: { min: 0.72, max: 1.35, step: 0.005 },
+  artworkScaleY: { min: 0.72, max: 1.35, step: 0.005 },
   artworkOffsetX: { min: -220, max: 220, step: 1 },
   artworkOffsetY: { min: -160, max: 160, step: 1 }
 } as const;
@@ -49,8 +53,11 @@ function sanitizeConfig(config: TableConfig): TableConfig {
 }
 
 function sanitizeArtwork(input: TableArtworkAlignment): TableArtworkAlignment {
+  const legacy = clamp(input.scale, BOUNDS.artworkScale.min, BOUNDS.artworkScale.max);
   return {
-    scale: clamp(input.scale, BOUNDS.artworkScale.min, BOUNDS.artworkScale.max),
+    scale: legacy,
+    scaleX: clamp(input.scaleX ?? legacy, BOUNDS.artworkScaleX.min, BOUNDS.artworkScaleX.max),
+    scaleY: clamp(input.scaleY ?? legacy, BOUNDS.artworkScaleY.min, BOUNDS.artworkScaleY.max),
     offsetX: clamp(input.offsetX, BOUNDS.artworkOffsetX.min, BOUNDS.artworkOffsetX.max),
     offsetY: clamp(input.offsetY, BOUNDS.artworkOffsetY.min, BOUNDS.artworkOffsetY.max)
   };
@@ -183,18 +190,36 @@ export default function TableToolPage() {
 
     const skinImage = skinImgRef.current;
     if (skinImageReady && skinImage) {
-      const overlayW = drawW * artwork.scale;
-      const overlayH = drawH * artwork.scale;
+      const overlayW = drawW * artwork.scaleX;
+      const overlayH = drawH * artwork.scaleY;
       const dx = (drawW - overlayW) * 0.5 + artwork.offsetX;
       const dy = (drawH - overlayH) * 0.5 + artwork.offsetY;
       ctx.save();
-      ctx.globalAlpha = 0.96;
+      ctx.globalAlpha = 0.5;
       ctx.drawImage(skinImage, dx, dy, overlayW, overlayH);
       ctx.restore();
     }
 
-    ctx.fillStyle = "#1e6c4b";
-    ctx.fillRect(originX + rail, originY + rail, drawW - rail * 2, drawH - rail * 2);
+    const feltX = originX + rail;
+    const feltY = originY + rail;
+    const feltW = drawW - rail * 2;
+    const feltH = drawH - rail * 2;
+    ctx.fillStyle = "rgba(7,16,31,0.38)";
+    ctx.fillRect(feltX, feltY, feltW, feltH);
+    ctx.strokeStyle = "rgba(158, 219, 182, 0.28)";
+    ctx.lineWidth = 1;
+    for (let x = feltX + 24; x < feltX + feltW; x += 24) {
+      ctx.beginPath();
+      ctx.moveTo(x, feltY);
+      ctx.lineTo(x, feltY + feltH);
+      ctx.stroke();
+    }
+    for (let y = feltY + 24; y < feltY + feltH; y += 24) {
+      ctx.beginPath();
+      ctx.moveTo(feltX, y);
+      ctx.lineTo(feltX + feltW, y);
+      ctx.stroke();
+    }
 
     ctx.strokeStyle = "#9edbb6";
     ctx.lineWidth = 2;
@@ -225,7 +250,11 @@ export default function TableToolPage() {
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.font = "13px ui-sans-serif, system-ui";
     ctx.fillText(`Playable bounds: x [${config.rail}, ${Math.round(config.width - config.rail)}]`, 12, drawH - 30);
-    ctx.fillText(`Skin scale ${artwork.scale.toFixed(3)} | offset (${Math.round(artwork.offsetX)}, ${Math.round(artwork.offsetY)})`, 12, drawH - 12);
+    ctx.fillText(
+      `Skin scaleX ${artwork.scaleX.toFixed(3)} | scaleY ${artwork.scaleY.toFixed(3)} | offset (${Math.round(artwork.offsetX)}, ${Math.round(artwork.offsetY)})`,
+      12,
+      drawH - 12
+    );
   }, [config, artwork, skinImageReady]);
 
   const setField = (key: keyof TableConfig, value: number) => {
@@ -363,26 +392,51 @@ export default function TableToolPage() {
           </label>
           <label className="mb-3 block">
             <div className="mb-1 flex items-center justify-between text-sm">
-              <span>Skin Scale</span>
+              <span>Skin Width (Scale X)</span>
               <input
                 type="number"
-                value={artwork.scale}
-                min={BOUNDS.artworkScale.min}
-                max={BOUNDS.artworkScale.max}
-                step={BOUNDS.artworkScale.step}
+                value={artwork.scaleX}
+                min={BOUNDS.artworkScaleX.min}
+                max={BOUNDS.artworkScaleX.max}
+                step={BOUNDS.artworkScaleX.step}
                 disabled={!canEdit}
-                onChange={(event) => setArtworkField("scale", Number(event.target.value))}
+                onChange={(event) => setArtworkField("scaleX", Number(event.target.value))}
                 className="w-24 rounded border border-white/20 bg-black/30 px-2 py-1 text-right text-xs text-white disabled:opacity-60"
               />
             </div>
             <input
               type="range"
-              value={artwork.scale}
-              min={BOUNDS.artworkScale.min}
-              max={BOUNDS.artworkScale.max}
-              step={BOUNDS.artworkScale.step}
+              value={artwork.scaleX}
+              min={BOUNDS.artworkScaleX.min}
+              max={BOUNDS.artworkScaleX.max}
+              step={BOUNDS.artworkScaleX.step}
               disabled={!canEdit}
-              onChange={(event) => setArtworkField("scale", Number(event.target.value))}
+              onChange={(event) => setArtworkField("scaleX", Number(event.target.value))}
+              className="w-full"
+            />
+          </label>
+          <label className="mb-3 block">
+            <div className="mb-1 flex items-center justify-between text-sm">
+              <span>Skin Height (Scale Y)</span>
+              <input
+                type="number"
+                value={artwork.scaleY}
+                min={BOUNDS.artworkScaleY.min}
+                max={BOUNDS.artworkScaleY.max}
+                step={BOUNDS.artworkScaleY.step}
+                disabled={!canEdit}
+                onChange={(event) => setArtworkField("scaleY", Number(event.target.value))}
+                className="w-24 rounded border border-white/20 bg-black/30 px-2 py-1 text-right text-xs text-white disabled:opacity-60"
+              />
+            </div>
+            <input
+              type="range"
+              value={artwork.scaleY}
+              min={BOUNDS.artworkScaleY.min}
+              max={BOUNDS.artworkScaleY.max}
+              step={BOUNDS.artworkScaleY.step}
+              disabled={!canEdit}
+              onChange={(event) => setArtworkField("scaleY", Number(event.target.value))}
               className="w-full"
             />
           </label>
@@ -447,6 +501,7 @@ export default function TableToolPage() {
 
         <section className="rounded-xl border border-white/10 bg-[#0d1b30] p-4">
           <h2 className="mb-3 text-base font-semibold">Wall And Pocket Overlay</h2>
+          <p className="mb-2 text-xs text-white/70">Skin is shown at 50% transparency over alignment grid (this screen only).</p>
           <div className="overflow-auto rounded-lg border border-white/10 bg-[#071521] p-2">
             <canvas ref={canvasRef} />
           </div>
