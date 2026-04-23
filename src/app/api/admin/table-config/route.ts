@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chatMe } from "@/lib/chatAuth";
-import { getArenaTableConfig, saveArenaTableConfig } from "@/lib/tableConfigStore";
+import { getArenaTableEditorConfig, saveArenaTableConfig } from "@/lib/tableConfigStore";
 
 function parseAllowlist(raw: string | undefined): Set<string> {
   return new Set(
@@ -33,8 +33,12 @@ async function requireChatUser(request: NextRequest): Promise<{ id: string; emai
 export async function GET(request: NextRequest) {
   const user = await requireChatUser(request);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const config = await getArenaTableConfig();
-  return NextResponse.json({ config, canEdit: canEdit(user.email) });
+  const editorConfig = await getArenaTableEditorConfig();
+  return NextResponse.json({
+    config: editorConfig.table,
+    artwork: editorConfig.artwork,
+    canEdit: canEdit(user.email)
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -49,10 +53,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const config = await saveArenaTableConfig(body);
-    return NextResponse.json({ ok: true, config });
+    const editorConfig = await getArenaTableEditorConfig();
+    return NextResponse.json({ ok: true, config, artwork: editorConfig.artwork });
   } catch (error) {
     console.error("table-config:save failed", error);
     return NextResponse.json({ error: "Unable to save table config" }, { status: 500 });
   }
 }
-

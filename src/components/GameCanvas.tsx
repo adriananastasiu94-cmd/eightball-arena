@@ -17,6 +17,11 @@ type Props = {
   onShotPowerChange?: (nextPower: number) => void;
   cueStyle?: CueStyle;
   tableSkin?: TableSkin;
+  tableArtworkAdjust?: {
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+  };
   replay: { id: string; frames: BallState[][]; fps: number; startAtMs?: number } | null;
   inputLocked?: boolean;
   lockLabel?: string | null;
@@ -83,6 +88,7 @@ export function GameCanvas({
   onShotPowerChange,
   cueStyle,
   tableSkin,
+  tableArtworkAdjust,
   replay,
   inputLocked = false,
   lockLabel = null,
@@ -284,7 +290,8 @@ export function GameCanvas({
         Boolean(activeTable.artwork) &&
         Boolean(artwork?.loaded) &&
         artwork?.url === activeTable.artwork;
-      const artworkDraw = useArtwork && artwork ? computeArtworkDrawRect(artwork, state.table) : null;
+      const artworkDraw =
+        useArtwork && artwork ? computeArtworkDrawRect(artwork, state.table, tableArtworkAdjust) : null;
 
       ctx.clearRect(0, 0, width, height);
 
@@ -558,7 +565,8 @@ export function GameCanvas({
     displayPower,
     activeCue,
     activeTable,
-    remotePresence
+    remotePresence,
+    tableArtworkAdjust
   ]);
 
   const pointerToTable = (e: PointerEvent<HTMLCanvasElement>): { x: number; y: number } | null => {
@@ -983,10 +991,25 @@ function floodDarkRegion(
 
 function computeArtworkDrawRect(
   artwork: TableArtworkAsset,
-  table: MatchState["table"]
+  table: MatchState["table"],
+  adjust?: {
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+  }
 ): { dx: number; dy: number; dw: number; dh: number } {
   const defaultRect = { dx: 0, dy: 0, dw: table.width, dh: table.height };
-  if (!artwork.anchors) return defaultRect;
+  if (!artwork.anchors) {
+    if (!adjust) return defaultRect;
+    const scaledW = table.width * adjust.scale;
+    const scaledH = table.height * adjust.scale;
+    return {
+      dx: (table.width - scaledW) * 0.5 + adjust.offsetX,
+      dy: (table.height - scaledH) * 0.5 + adjust.offsetY,
+      dw: scaledW,
+      dh: scaledH
+    };
+  }
 
   const leftTarget = table.rail;
   const rightTarget = table.width - table.rail;
@@ -1013,11 +1036,22 @@ function computeArtworkDrawRect(
   if (fitX.scale <= 0 || fitY.scale <= 0) return defaultRect;
   if (fitX.scale < 0.35 || fitX.scale > 2.8 || fitY.scale < 0.35 || fitY.scale > 2.8) return defaultRect;
 
-  return {
+  const fitted = {
     dx: fitX.offset,
     dy: fitY.offset,
     dw: artwork.crop.sw * fitX.scale,
     dh: artwork.crop.sh * fitY.scale
+  };
+  if (!adjust) return fitted;
+  const centerX = fitted.dx + fitted.dw * 0.5;
+  const centerY = fitted.dy + fitted.dh * 0.5;
+  const scaledW = fitted.dw * adjust.scale;
+  const scaledH = fitted.dh * adjust.scale;
+  return {
+    dx: centerX - scaledW * 0.5 + adjust.offsetX,
+    dy: centerY - scaledH * 0.5 + adjust.offsetY,
+    dw: scaledW,
+    dh: scaledH
   };
 }
 
@@ -1278,14 +1312,14 @@ function drawCueStick(
   power: number,
   cueStyle: CueStyle,
   artwork: HTMLImageElement | null,
-  alpha = 0.96
+  alpha = 1
 ) {
   const tipInset = 26;
   const cueLength = 210 + power * 58;
 
   if (artwork && artwork.naturalWidth > 0 && artwork.naturalHeight > 0) {
     const drawLen = cueLength + 36;
-    const drawHeight = 18;
+    const drawHeight = 24;
     const endX = -tipInset;
     const startX = endX - drawLen;
 
@@ -1293,6 +1327,13 @@ function drawCueStick(
     ctx.globalAlpha = alpha;
     ctx.translate(cueBall.pos.x, cueBall.pos.y);
     ctx.rotate(angle);
+    ctx.strokeStyle = "rgba(0,0,0,0.35)";
+    ctx.lineWidth = drawHeight + 2;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(startX + 6, 0);
+    ctx.lineTo(endX - 2, 0);
+    ctx.stroke();
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(artwork, startX, -drawHeight / 2, drawLen, drawHeight);

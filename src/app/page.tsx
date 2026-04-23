@@ -12,6 +12,7 @@ import { createMatchState } from "@/game/state";
 import { applyCueImpulse, simulateShot } from "@/game/physics/engine";
 import { adjudicateShot, applyOutcomeToTurn } from "@/game/rules/eightBallRules";
 import { CUE_STYLES, TABLE_SKINS } from "@/game/rendering/customization";
+import type { TableArtworkAlignment } from "@/lib/tableConfigStore";
 
 type Me = {
   id: string;
@@ -162,6 +163,7 @@ export default function HomePage() {
   const [tournamentRun, setTournamentRun] = useState<TournamentRun | null>(null);
   const [menuNotice, setMenuNotice] = useState<string | null>(null);
   const [liveTableConfig, setLiveTableConfig] = useState<TableConfig | null>(null);
+  const [liveArtworkAdjust, setLiveArtworkAdjust] = useState<TableArtworkAlignment | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [winnerBalancePreview, setWinnerBalancePreview] = useState<number | null>(null);
   const handledResultMatchIdRef = useRef<string | null>(null);
@@ -227,12 +229,16 @@ export default function HomePage() {
   useEffect(() => {
     if (!me) return;
     let cancelled = false;
-    api<{ config: TableConfig }>("/api/admin/table-config")
+    api<{ config: TableConfig; artwork?: TableArtworkAlignment }>("/api/admin/table-config")
       .then((res) => {
-        if (!cancelled) setLiveTableConfig(res.config);
+        if (cancelled) return;
+        setLiveTableConfig(res.config);
+        setLiveArtworkAdjust(res.artwork ?? { scale: 1, offsetX: 0, offsetY: 0 });
       })
       .catch(() => {
-        if (!cancelled) setLiveTableConfig(null);
+        if (cancelled) return;
+        setLiveTableConfig(null);
+        setLiveArtworkAdjust(null);
       });
     return () => {
       cancelled = true;
@@ -1196,6 +1202,7 @@ export default function HomePage() {
             onShotPowerChange={setShotPower}
             cueStyle={CUE_STYLES[cueIndex]}
             tableSkin={TABLE_SKINS[tableIndex]}
+            tableArtworkAdjust={liveArtworkAdjust ?? undefined}
             replay={mode === "online" ? socket.replay : localReplay}
             inputLocked={mode === "online" ? socket.shotLocked : Boolean(localReplay)}
             lockLabel={mode === "online" ? "Waiting for shot result..." : "Playing shot..."}

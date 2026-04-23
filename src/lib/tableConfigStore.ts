@@ -3,6 +3,11 @@ import { TableConfig } from "@/game/types";
 import { prisma } from "@/lib/prisma";
 
 const DEFAULT_TABLE_CONFIG: TableConfig = { ...TABLE };
+const DEFAULT_ARTWORK_ALIGNMENT = {
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0
+} as const;
 const TABLE_NAME = "arena_table_config";
 
 const LIMITS = {
@@ -25,6 +30,17 @@ function clamp(n: number, min: number, max: number): number {
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
+export type TableArtworkAlignment = {
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+};
+
+export type ArenaTableEditorConfig = {
+  table: TableConfig;
+  artwork: TableArtworkAlignment;
+};
 
 export function normalizeTableConfig(input: unknown): TableConfig {
   const src = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
@@ -64,6 +80,18 @@ export function normalizeTableConfig(input: unknown): TableConfig {
   };
 }
 
+export function normalizeTableArtworkAlignment(input: unknown): TableArtworkAlignment {
+  const src = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  const scale = clamp(toFiniteNumber(src.scale) ?? DEFAULT_ARTWORK_ALIGNMENT.scale, 0.72, 1.35);
+  const offsetX = clamp(toFiniteNumber(src.offsetX) ?? DEFAULT_ARTWORK_ALIGNMENT.offsetX, -220, 220);
+  const offsetY = clamp(toFiniteNumber(src.offsetY) ?? DEFAULT_ARTWORK_ALIGNMENT.offsetY, -160, 160);
+  return {
+    scale: round2(scale),
+    offsetX: round2(offsetX),
+    offsetY: round2(offsetY)
+  };
+}
+
 async function ensureTable(): Promise<void> {
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS ${TABLE_NAME} (
@@ -93,21 +121,62 @@ export async function getArenaTableConfig(): Promise<TableConfig> {
       `;
       return fallback;
     }
-    return normalizeTableConfig(row.config);
+    const src = row.config && typeof row.config === "object" ? (row.config as Record<string, unknown>) : {};
+    return normalizeTableConfig(src.table ?? src);
   } catch (error) {
     console.error("table-config:get failed", error);
     return { ...DEFAULT_TABLE_CONFIG };
   }
 }
 
+export async function getArenaTableEditorConfig(): Promise<ArenaTableEditorConfig> {
+  try {
+    await ensureTable();
+    const rows = await prisma.$queryRaw<Array<{ config: unknown }>>`
+      SELECT config
+      FROM arena_table_config
+      WHERE id = 1
+      LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) {
+      const fallback: ArenaTableEditorConfig = {
+        table: normalizeTableConfig(DEFAULT_TABLE_CONFIG),
+        artwork: normalizeTableArtworkAlignment(DEFAULT_ARTWORK_ALIGNMENT)
+      };
+      await prisma.$executeRaw`
+        INSERT INTO arena_table_config (id, config)
+        VALUES (1, ${JSON.stringify(fallback)}::jsonb)
+        ON CONFLICT (id) DO NOTHING
+      `;
+      return fallback;
+    }
+    const src = row.config && typeof row.config === "object" ? (row.config as Record<string, unknown>) : {};
+    const nestedTable = normalizeTableConfig(src.table ?? src);
+    const nestedArtwork = normalizeTableArtworkAlignment(src.artwork);
+    return { table: nestedTable, artwork: nestedArtwork };
+  } catch (error) {
+    console.error("table-config:get editor failed", error);
+    return {
+      table: { ...DEFAULT_TABLE_CONFIG },
+      artwork: normalizeTableArtworkAlignment(DEFAULT_ARTWORK_ALIGNMENT)
+    };
+  }
+}
+
 export async function saveArenaTableConfig(input: unknown): Promise<TableConfig> {
-  const next = normalizeTableConfig(input);
+  const src = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  const nextTable = normalizeTableConfig(src.table ?? src);
+  const nextArtwork = normalizeTableArtworkAlignment(src.artwork);
+  const nextPayload: ArenaTableEditorConfig = {
+    table: nextTable,
+    artwork: nextArtwork
+  };
   await ensureTable();
   await prisma.$executeRaw`
     INSERT INTO arena_table_config (id, config, updated_at)
-    VALUES (1, ${JSON.stringify(next)}::jsonb, NOW())
+    VALUES (1, ${JSON.stringify(nextPayload)}::jsonb, NOW())
     ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config, updated_at = NOW()
   `;
-  return next;
+  return nextTable;
 }
-

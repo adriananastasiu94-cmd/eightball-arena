@@ -3,9 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { TableConfig } from "@/game/types";
+import { TABLE_SKINS } from "@/game/rendering/customization";
+import type { TableArtworkAlignment } from "@/lib/tableConfigStore";
 
 type ConfigResponse = {
   config: TableConfig;
+  artwork?: TableArtworkAlignment;
   canEdit?: boolean;
 };
 
@@ -16,13 +19,19 @@ const FALLBACK_CONFIG: TableConfig = {
   pocketRadius: 28,
   ballRadius: 11
 };
+const FALLBACK_ARTWORK: TableArtworkAlignment = {
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0
+};
 
 const BOUNDS = {
-  width: { min: 760, max: 1800, step: 1 },
-  height: { min: 380, max: 960, step: 1 },
   rail: { min: 18, max: 120, step: 0.25 },
   pocketRadius: { min: 12, max: 72, step: 0.25 },
-  ballRadius: { min: 8, max: 24, step: 0.25 }
+  ballRadius: { min: 8, max: 24, step: 0.25 },
+  artworkScale: { min: 0.72, max: 1.35, step: 0.005 },
+  artworkOffsetX: { min: -220, max: 220, step: 1 },
+  artworkOffsetY: { min: -160, max: 160, step: 1 }
 } as const;
 
 function clamp(n: number, min: number, max: number): number {
@@ -30,13 +39,21 @@ function clamp(n: number, min: number, max: number): number {
 }
 
 function sanitizeConfig(config: TableConfig): TableConfig {
-  const width = clamp(config.width, BOUNDS.width.min, BOUNDS.width.max);
-  const height = clamp(config.height, BOUNDS.height.min, BOUNDS.height.max);
+  const width = Math.round(config.width);
+  const height = Math.round(config.height);
   const ballRadius = clamp(config.ballRadius, BOUNDS.ballRadius.min, BOUNDS.ballRadius.max);
-  const maxRail = Math.min(BOUNDS.rail.max, Math.min(width, height) / 2 - ballRadius - 2);
+  const maxRail = Math.max(BOUNDS.rail.min, Math.min(BOUNDS.rail.max, Math.min(width, height) / 2 - ballRadius - 2));
   const rail = clamp(config.rail, BOUNDS.rail.min, maxRail);
   const pocketRadius = clamp(config.pocketRadius, BOUNDS.pocketRadius.min, Math.min(BOUNDS.pocketRadius.max, rail - 1));
   return { width, height, rail, pocketRadius, ballRadius };
+}
+
+function sanitizeArtwork(input: TableArtworkAlignment): TableArtworkAlignment {
+  return {
+    scale: clamp(input.scale, BOUNDS.artworkScale.min, BOUNDS.artworkScale.max),
+    offsetX: clamp(input.offsetX, BOUNDS.artworkOffsetX.min, BOUNDS.artworkOffsetX.max),
+    offsetY: clamp(input.offsetY, BOUNDS.artworkOffsetY.min, BOUNDS.artworkOffsetY.max)
+  };
 }
 
 function pocketCenters(cfg: TableConfig): Array<{ x: number; y: number; label: string }> {
@@ -52,17 +69,28 @@ function pocketCenters(cfg: TableConfig): Array<{ x: number; y: number; label: s
 
 export default function TableToolPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const skinImgRef = useRef<HTMLImageElement | null>(null);
   const [config, setConfig] = useState<TableConfig>(FALLBACK_CONFIG);
   const [savedConfig, setSavedConfig] = useState<TableConfig>(FALLBACK_CONFIG);
+  const [artwork, setArtwork] = useState<TableArtworkAlignment>(FALLBACK_ARTWORK);
+  const [savedArtwork, setSavedArtwork] = useState<TableArtworkAlignment>(FALLBACK_ARTWORK);
+  const [skinId, setSkinId] = useState<string>(TABLE_SKINS[0]?.id ?? "table_1");
+  const [skinImageReady, setSkinImageReady] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  const dirty = useMemo(
-    () => JSON.stringify(config) !== JSON.stringify(savedConfig),
-    [config, savedConfig]
+  const selectedSkin = useMemo(
+    () => TABLE_SKINS.find((skin) => skin.id === skinId) ?? TABLE_SKINS[0] ?? null,
+    [skinId]
   );
+  const dirty = useMemo(() => {
+    return (
+      JSON.stringify(config) !== JSON.stringify(savedConfig) ||
+      JSON.stringify(artwork) !== JSON.stringify(savedArtwork)
+    );
+  }, [config, savedConfig, artwork, savedArtwork]);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,6 +101,9 @@ export default function TableToolPage() {
         const normalized = sanitizeConfig(res.config);
         setConfig(normalized);
         setSavedConfig(normalized);
+        const visual = sanitizeArtwork(res.artwork ?? FALLBACK_ARTWORK);
+        setArtwork(visual);
+        setSavedArtwork(visual);
         setCanEdit(Boolean(res.canEdit));
       })
       .catch(() => {
@@ -80,6 +111,8 @@ export default function TableToolPage() {
         setMessage("Unable to load server table config. Showing local fallback.");
         setConfig(FALLBACK_CONFIG);
         setSavedConfig(FALLBACK_CONFIG);
+        setArtwork(FALLBACK_ARTWORK);
+        setSavedArtwork(FALLBACK_ARTWORK);
         setCanEdit(false);
       })
       .finally(() => {
@@ -92,14 +125,42 @@ export default function TableToolPage() {
   }, []);
 
   useEffect(() => {
+    const url = selectedSkin?.artwork;
+    if (!url) {
+      skinImgRef.current = null;
+      setSkinImageReady(false);
+      return;
+    }
+    let canceled = false;
+    const img = new Image();
+    img.decoding = "async";
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (canceled) return;
+      skinImgRef.current = img;
+      setSkinImageReady(true);
+    };
+    img.onerror = () => {
+      if (canceled) return;
+      skinImgRef.current = null;
+      setSkinImageReady(false);
+    };
+    img.src = url;
+    setSkinImageReady(false);
+    return () => {
+      canceled = true;
+    };
+  }, [selectedSkin?.artwork]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     const ratio = window.devicePixelRatio || 1;
-    const cssWidth = 1000;
-    const cssHeight = 560;
+    const cssWidth = config.width;
+    const cssHeight = config.height;
     canvas.width = Math.floor(cssWidth * ratio);
     canvas.height = Math.floor(cssHeight * ratio);
     canvas.style.width = `${cssWidth}px`;
@@ -110,20 +171,27 @@ export default function TableToolPage() {
     ctx.fillStyle = "#071521";
     ctx.fillRect(0, 0, cssWidth, cssHeight);
 
-    const pad = 48;
-    const scale = Math.min(
-      (cssWidth - pad * 2) / config.width,
-      (cssHeight - pad * 2) / config.height
-    );
-    const drawW = config.width * scale;
-    const drawH = config.height * scale;
-    const originX = (cssWidth - drawW) / 2;
-    const originY = (cssHeight - drawH) / 2;
-    const rail = config.rail * scale;
-    const pocketRadius = config.pocketRadius * scale;
+    const drawW = cssWidth;
+    const drawH = cssHeight;
+    const originX = 0;
+    const originY = 0;
+    const rail = config.rail;
+    const pocketRadius = config.pocketRadius;
 
     ctx.fillStyle = "#4a3528";
     ctx.fillRect(originX, originY, drawW, drawH);
+
+    const skinImage = skinImgRef.current;
+    if (skinImageReady && skinImage) {
+      const overlayW = drawW * artwork.scale;
+      const overlayH = drawH * artwork.scale;
+      const dx = (drawW - overlayW) * 0.5 + artwork.offsetX;
+      const dy = (drawH - overlayH) * 0.5 + artwork.offsetY;
+      ctx.save();
+      ctx.globalAlpha = 0.96;
+      ctx.drawImage(skinImage, dx, dy, overlayW, overlayH);
+      ctx.restore();
+    }
 
     ctx.fillStyle = "#1e6c4b";
     ctx.fillRect(originX + rail, originY + rail, drawW - rail * 2, drawH - rail * 2);
@@ -136,8 +204,8 @@ export default function TableToolPage() {
 
     const pockets = pocketCenters(config);
     for (const p of pockets) {
-      const cx = originX + p.x * scale;
-      const cy = originY + p.y * scale;
+      const cx = originX + p.x;
+      const cy = originY + p.y;
       ctx.beginPath();
       ctx.arc(cx, cy, pocketRadius, 0, Math.PI * 2);
       ctx.fillStyle = "#000";
@@ -154,27 +222,36 @@ export default function TableToolPage() {
       ctx.fillText(p.label, cx - 8, cy - pocketRadius - 10);
     }
 
-    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.font = "13px ui-sans-serif, system-ui";
-    ctx.fillText(`Playable bounds: x [${config.rail}, ${Math.round(config.width - config.rail)}]`, originX, originY + drawH + 24);
-    ctx.fillText(`Pocket centers anchored at rail=${config.rail}`, originX, originY + drawH + 42);
-  }, [config]);
+    ctx.fillText(`Playable bounds: x [${config.rail}, ${Math.round(config.width - config.rail)}]`, 12, drawH - 30);
+    ctx.fillText(`Skin scale ${artwork.scale.toFixed(3)} | offset (${Math.round(artwork.offsetX)}, ${Math.round(artwork.offsetY)})`, 12, drawH - 12);
+  }, [config, artwork, skinImageReady]);
 
   const setField = (key: keyof TableConfig, value: number) => {
     setConfig((prev) => sanitizeConfig({ ...prev, [key]: value }));
+  };
+  const setArtworkField = (key: keyof TableArtworkAlignment, value: number) => {
+    setArtwork((prev) => sanitizeArtwork({ ...prev, [key]: value }));
   };
 
   const handleSave = async () => {
     setSaving(true);
     setMessage(null);
     try {
-      const res = await api<{ ok: boolean; config: TableConfig }>("/api/admin/table-config", {
+      const res = await api<{ ok: boolean; config: TableConfig; artwork: TableArtworkAlignment }>("/api/admin/table-config", {
         method: "POST",
-        body: JSON.stringify(config)
+        body: JSON.stringify({
+          table: config,
+          artwork
+        })
       });
       const normalized = sanitizeConfig(res.config);
       setConfig(normalized);
       setSavedConfig(normalized);
+      const visual = sanitizeArtwork(res.artwork ?? artwork);
+      setArtwork(visual);
+      setSavedArtwork(visual);
       setMessage("Saved. New matches will use this table geometry.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to save");
@@ -185,12 +262,11 @@ export default function TableToolPage() {
 
   const handleReset = () => {
     setConfig(savedConfig);
+    setArtwork(savedArtwork);
     setMessage(null);
   };
 
-  const fields: Array<{ key: keyof TableConfig; label: string }> = [
-    { key: "width", label: "Table Width" },
-    { key: "height", label: "Table Height" },
+  const fields: Array<{ key: "rail" | "pocketRadius" | "ballRadius"; label: string }> = [
     { key: "rail", label: "Rail Inset" },
     { key: "pocketRadius", label: "Pocket Radius" },
     { key: "ballRadius", label: "Ball Radius" }
@@ -235,6 +311,9 @@ export default function TableToolPage() {
       <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
         <section className="rounded-xl border border-white/10 bg-[#0d1b30] p-4">
           <h2 className="mb-3 text-base font-semibold">Config</h2>
+          <div className="mb-3 rounded border border-white/15 bg-black/20 p-2 text-xs text-white/75">
+            Fixed field size: {config.width} x {config.height}
+          </div>
           <div className="space-y-3">
             {fields.map((field) => {
               const bounds = BOUNDS[field.key];
@@ -267,6 +346,96 @@ export default function TableToolPage() {
               );
             })}
           </div>
+          <h3 className="mb-2 mt-5 text-sm font-semibold">Skin Overlay Alignment</h3>
+          <label className="mb-3 block">
+            <div className="mb-1 text-sm">Table Skin</div>
+            <select
+              value={skinId}
+              onChange={(event) => setSkinId(event.target.value)}
+              className="w-full rounded border border-white/20 bg-black/30 px-2 py-2 text-sm text-white"
+            >
+              {TABLE_SKINS.map((skin) => (
+                <option key={skin.id} value={skin.id}>
+                  {skin.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="mb-3 block">
+            <div className="mb-1 flex items-center justify-between text-sm">
+              <span>Skin Scale</span>
+              <input
+                type="number"
+                value={artwork.scale}
+                min={BOUNDS.artworkScale.min}
+                max={BOUNDS.artworkScale.max}
+                step={BOUNDS.artworkScale.step}
+                disabled={!canEdit}
+                onChange={(event) => setArtworkField("scale", Number(event.target.value))}
+                className="w-24 rounded border border-white/20 bg-black/30 px-2 py-1 text-right text-xs text-white disabled:opacity-60"
+              />
+            </div>
+            <input
+              type="range"
+              value={artwork.scale}
+              min={BOUNDS.artworkScale.min}
+              max={BOUNDS.artworkScale.max}
+              step={BOUNDS.artworkScale.step}
+              disabled={!canEdit}
+              onChange={(event) => setArtworkField("scale", Number(event.target.value))}
+              className="w-full"
+            />
+          </label>
+          <label className="mb-3 block">
+            <div className="mb-1 flex items-center justify-between text-sm">
+              <span>Skin Offset X</span>
+              <input
+                type="number"
+                value={artwork.offsetX}
+                min={BOUNDS.artworkOffsetX.min}
+                max={BOUNDS.artworkOffsetX.max}
+                step={BOUNDS.artworkOffsetX.step}
+                disabled={!canEdit}
+                onChange={(event) => setArtworkField("offsetX", Number(event.target.value))}
+                className="w-24 rounded border border-white/20 bg-black/30 px-2 py-1 text-right text-xs text-white disabled:opacity-60"
+              />
+            </div>
+            <input
+              type="range"
+              value={artwork.offsetX}
+              min={BOUNDS.artworkOffsetX.min}
+              max={BOUNDS.artworkOffsetX.max}
+              step={BOUNDS.artworkOffsetX.step}
+              disabled={!canEdit}
+              onChange={(event) => setArtworkField("offsetX", Number(event.target.value))}
+              className="w-full"
+            />
+          </label>
+          <label className="mb-3 block">
+            <div className="mb-1 flex items-center justify-between text-sm">
+              <span>Skin Offset Y</span>
+              <input
+                type="number"
+                value={artwork.offsetY}
+                min={BOUNDS.artworkOffsetY.min}
+                max={BOUNDS.artworkOffsetY.max}
+                step={BOUNDS.artworkOffsetY.step}
+                disabled={!canEdit}
+                onChange={(event) => setArtworkField("offsetY", Number(event.target.value))}
+                className="w-24 rounded border border-white/20 bg-black/30 px-2 py-1 text-right text-xs text-white disabled:opacity-60"
+              />
+            </div>
+            <input
+              type="range"
+              value={artwork.offsetY}
+              min={BOUNDS.artworkOffsetY.min}
+              max={BOUNDS.artworkOffsetY.max}
+              step={BOUNDS.artworkOffsetY.step}
+              disabled={!canEdit}
+              onChange={(event) => setArtworkField("offsetY", Number(event.target.value))}
+              className="w-full"
+            />
+          </label>
           <button
             onClick={handleReset}
             disabled={!dirty}
@@ -278,7 +447,7 @@ export default function TableToolPage() {
 
         <section className="rounded-xl border border-white/10 bg-[#0d1b30] p-4">
           <h2 className="mb-3 text-base font-semibold">Wall And Pocket Overlay</h2>
-          <div className="overflow-x-auto rounded-lg border border-white/10 bg-[#071521] p-2">
+          <div className="overflow-auto rounded-lg border border-white/10 bg-[#071521] p-2">
             <canvas ref={canvasRef} />
           </div>
         </section>
@@ -286,4 +455,3 @@ export default function TableToolPage() {
     </main>
   );
 }
-
