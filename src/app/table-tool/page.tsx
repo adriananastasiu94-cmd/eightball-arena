@@ -29,6 +29,7 @@ const FALLBACK_ARTWORK: TableArtworkAlignment = {
   sectionCenterScaleX: 1,
   sectionRightScaleX: 1
 };
+const GRID_ONLY_SKIN_ID = "__grid_only__";
 
 const BOUNDS = {
   rail: { min: 18, max: 120, step: 0.25 },
@@ -140,7 +141,7 @@ export default function TableToolPage() {
   const [savedConfig, setSavedConfig] = useState<TableConfig>(FALLBACK_CONFIG);
   const [artwork, setArtwork] = useState<TableArtworkAlignment>(FALLBACK_ARTWORK);
   const [savedArtwork, setSavedArtwork] = useState<TableArtworkAlignment>(FALLBACK_ARTWORK);
-  const [skinId, setSkinId] = useState<string>(TABLE_SKINS[0]?.id ?? "table_1");
+  const [skinId, setSkinId] = useState<string>(GRID_ONLY_SKIN_ID);
   const [skinImageReady, setSkinImageReady] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -148,7 +149,10 @@ export default function TableToolPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   const selectedSkin = useMemo(
-    () => TABLE_SKINS.find((skin) => skin.id === skinId) ?? TABLE_SKINS[0] ?? null,
+    () =>
+      skinId === GRID_ONLY_SKIN_ID
+        ? null
+        : TABLE_SKINS.find((skin) => skin.id === skinId) ?? TABLE_SKINS[0] ?? null,
     [skinId]
   );
   const dirty = useMemo(() => {
@@ -442,6 +446,7 @@ export default function TableToolPage() {
               onChange={(event) => setSkinId(event.target.value)}
               className="w-full rounded border border-white/20 bg-black/30 px-2 py-2 text-sm text-white"
             >
+              <option value={GRID_ONLY_SKIN_ID}>Blank Grid (No Skin)</option>
               {TABLE_SKINS.map((skin) => (
                 <option key={skin.id} value={skin.id}>
                   {skin.name}
