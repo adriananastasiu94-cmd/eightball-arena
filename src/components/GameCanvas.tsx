@@ -23,6 +23,9 @@ type Props = {
     scaleY: number;
     offsetX: number;
     offsetY: number;
+    sectionLeftScaleX: number;
+    sectionCenterScaleX: number;
+    sectionRightScaleX: number;
   };
   replay: { id: string; frames: BallState[][]; fps: number; startAtMs?: number } | null;
   inputLocked?: boolean;
@@ -308,18 +311,12 @@ export function GameCanvas({
       ctx.scale(scale, scale);
 
       if (artworkDraw && artwork) {
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = "high";
-        ctx.drawImage(
+        drawTableArtworkDistorted(
+          ctx,
           artwork.image,
-          artwork.crop.sx,
-          artwork.crop.sy,
-          artwork.crop.sw,
-          artwork.crop.sh,
-          artworkDraw.dx,
-          artworkDraw.dy,
-          artworkDraw.dw,
-          artworkDraw.dh
+          artwork.crop,
+          artworkDraw,
+          tableArtworkAdjust
         );
       } else {
         const railGrad = ctx.createLinearGradient(0, 0, 0, state.table.height);
@@ -1000,6 +997,9 @@ function computeArtworkDrawRect(
     scaleY: number;
     offsetX: number;
     offsetY: number;
+    sectionLeftScaleX: number;
+    sectionCenterScaleX: number;
+    sectionRightScaleX: number;
   }
 ): { dx: number; dy: number; dw: number; dh: number } {
   const defaultRect = { dx: 0, dy: 0, dw: table.width, dh: table.height };
@@ -1085,6 +1085,48 @@ function fitLinear1D(
   const scale = covST / varS;
   const offset = meanT - scale * meanS;
   return { scale, offset };
+}
+
+function drawTableArtworkDistorted(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  crop: { sx: number; sy: number; sw: number; sh: number },
+  rect: { dx: number; dy: number; dw: number; dh: number },
+  adjust?:
+    | {
+        sectionLeftScaleX: number;
+        sectionCenterScaleX: number;
+        sectionRightScaleX: number;
+      }
+    | null
+) {
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
+  const srcThird = crop.sw / 3;
+  const leftScale = adjust?.sectionLeftScaleX ?? 1;
+  const centerScale = adjust?.sectionCenterScaleX ?? 1;
+  const rightScale = adjust?.sectionRightScaleX ?? 1;
+
+  const rawWidths = [srcThird * leftScale, srcThird * centerScale, srcThird * rightScale];
+  const totalRaw = rawWidths[0] + rawWidths[1] + rawWidths[2];
+  if (!Number.isFinite(totalRaw) || totalRaw <= 0) {
+    ctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, rect.dx, rect.dy, rect.dw, rect.dh);
+    return;
+  }
+
+  const fit = rect.dw / totalRaw;
+  const destWidths = rawWidths.map((w) => w * fit);
+  const srcWidths = [srcThird, srcThird, crop.sw - srcThird * 2];
+  let dx = rect.dx;
+  let sx = crop.sx;
+  for (let i = 0; i < 3; i += 1) {
+    const dw = destWidths[i];
+    const sw = srcWidths[i];
+    ctx.drawImage(image, sx, crop.sy, sw, crop.sh, dx, rect.dy, dw, rect.dh);
+    dx += dw;
+    sx += sw;
+  }
 }
 
 function getOrCreateBallPose(store: Map<number, BallPose>, ball: BallState): BallPose {

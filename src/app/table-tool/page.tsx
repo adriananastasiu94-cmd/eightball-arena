@@ -24,7 +24,10 @@ const FALLBACK_ARTWORK: TableArtworkAlignment = {
   scaleX: 1,
   scaleY: 1,
   offsetX: 0,
-  offsetY: 0
+  offsetY: 0,
+  sectionLeftScaleX: 1,
+  sectionCenterScaleX: 1,
+  sectionRightScaleX: 1
 };
 
 const BOUNDS = {
@@ -35,7 +38,10 @@ const BOUNDS = {
   artworkScaleX: { min: 0.72, max: 1.35, step: 0.005 },
   artworkScaleY: { min: 0.72, max: 1.35, step: 0.005 },
   artworkOffsetX: { min: -220, max: 220, step: 1 },
-  artworkOffsetY: { min: -160, max: 160, step: 1 }
+  artworkOffsetY: { min: -160, max: 160, step: 1 },
+  sectionLeftScaleX: { min: 0.65, max: 1.55, step: 0.005 },
+  sectionCenterScaleX: { min: 0.65, max: 1.55, step: 0.005 },
+  sectionRightScaleX: { min: 0.65, max: 1.55, step: 0.005 }
 } as const;
 
 function clamp(n: number, min: number, max: number): number {
@@ -59,7 +65,22 @@ function sanitizeArtwork(input: TableArtworkAlignment): TableArtworkAlignment {
     scaleX: clamp(input.scaleX ?? legacy, BOUNDS.artworkScaleX.min, BOUNDS.artworkScaleX.max),
     scaleY: clamp(input.scaleY ?? legacy, BOUNDS.artworkScaleY.min, BOUNDS.artworkScaleY.max),
     offsetX: clamp(input.offsetX, BOUNDS.artworkOffsetX.min, BOUNDS.artworkOffsetX.max),
-    offsetY: clamp(input.offsetY, BOUNDS.artworkOffsetY.min, BOUNDS.artworkOffsetY.max)
+    offsetY: clamp(input.offsetY, BOUNDS.artworkOffsetY.min, BOUNDS.artworkOffsetY.max),
+    sectionLeftScaleX: clamp(
+      input.sectionLeftScaleX ?? 1,
+      BOUNDS.sectionLeftScaleX.min,
+      BOUNDS.sectionLeftScaleX.max
+    ),
+    sectionCenterScaleX: clamp(
+      input.sectionCenterScaleX ?? 1,
+      BOUNDS.sectionCenterScaleX.min,
+      BOUNDS.sectionCenterScaleX.max
+    ),
+    sectionRightScaleX: clamp(
+      input.sectionRightScaleX ?? 1,
+      BOUNDS.sectionRightScaleX.min,
+      BOUNDS.sectionRightScaleX.max
+    )
   };
 }
 
@@ -72,6 +93,44 @@ function pocketCenters(cfg: TableConfig): Array<{ x: number; y: number; label: s
     { x: cfg.width / 2, y: cfg.height - cfg.rail, label: "BM" },
     { x: cfg.width - cfg.rail, y: cfg.height - cfg.rail, label: "BR" }
   ];
+}
+
+function drawDistortedSkin(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  dx: number,
+  dy: number,
+  dw: number,
+  dh: number,
+  artwork: TableArtworkAlignment
+) {
+  const srcThird = image.naturalWidth / 3;
+  if (!Number.isFinite(srcThird) || srcThird <= 0) {
+    ctx.drawImage(image, dx, dy, dw, dh);
+    return;
+  }
+
+  const rawWidths = [
+    srcThird * artwork.sectionLeftScaleX,
+    srcThird * artwork.sectionCenterScaleX,
+    srcThird * artwork.sectionRightScaleX
+  ];
+  const totalRaw = rawWidths[0] + rawWidths[1] + rawWidths[2];
+  if (!Number.isFinite(totalRaw) || totalRaw <= 0) {
+    ctx.drawImage(image, dx, dy, dw, dh);
+    return;
+  }
+
+  const fit = dw / totalRaw;
+  const destWidths = rawWidths.map((w) => w * fit);
+  const srcWidths = [srcThird, srcThird, image.naturalWidth - srcThird * 2];
+  let drawX = dx;
+  let srcX = 0;
+  for (let i = 0; i < 3; i += 1) {
+    ctx.drawImage(image, srcX, 0, srcWidths[i], image.naturalHeight, drawX, dy, destWidths[i], dh);
+    srcX += srcWidths[i];
+    drawX += destWidths[i];
+  }
 }
 
 export default function TableToolPage() {
@@ -196,7 +255,7 @@ export default function TableToolPage() {
       const dy = (drawH - overlayH) * 0.5 + artwork.offsetY;
       ctx.save();
       ctx.globalAlpha = 0.5;
-      ctx.drawImage(skinImage, dx, dy, overlayW, overlayH);
+      drawDistortedSkin(ctx, skinImage, dx, dy, overlayW, overlayH, artwork);
       ctx.restore();
     }
 
@@ -487,6 +546,84 @@ export default function TableToolPage() {
               step={BOUNDS.artworkOffsetY.step}
               disabled={!canEdit}
               onChange={(event) => setArtworkField("offsetY", Number(event.target.value))}
+              className="w-full"
+            />
+          </label>
+          <h4 className="mb-1 mt-1 text-xs font-semibold uppercase tracking-wide text-white/70">
+            3-Section Distort
+          </h4>
+          <label className="mb-3 block">
+            <div className="mb-1 flex items-center justify-between text-sm">
+              <span>Left Section Width</span>
+              <input
+                type="number"
+                value={artwork.sectionLeftScaleX}
+                min={BOUNDS.sectionLeftScaleX.min}
+                max={BOUNDS.sectionLeftScaleX.max}
+                step={BOUNDS.sectionLeftScaleX.step}
+                disabled={!canEdit}
+                onChange={(event) => setArtworkField("sectionLeftScaleX", Number(event.target.value))}
+                className="w-24 rounded border border-white/20 bg-black/30 px-2 py-1 text-right text-xs text-white disabled:opacity-60"
+              />
+            </div>
+            <input
+              type="range"
+              value={artwork.sectionLeftScaleX}
+              min={BOUNDS.sectionLeftScaleX.min}
+              max={BOUNDS.sectionLeftScaleX.max}
+              step={BOUNDS.sectionLeftScaleX.step}
+              disabled={!canEdit}
+              onChange={(event) => setArtworkField("sectionLeftScaleX", Number(event.target.value))}
+              className="w-full"
+            />
+          </label>
+          <label className="mb-3 block">
+            <div className="mb-1 flex items-center justify-between text-sm">
+              <span>Center Section Width</span>
+              <input
+                type="number"
+                value={artwork.sectionCenterScaleX}
+                min={BOUNDS.sectionCenterScaleX.min}
+                max={BOUNDS.sectionCenterScaleX.max}
+                step={BOUNDS.sectionCenterScaleX.step}
+                disabled={!canEdit}
+                onChange={(event) => setArtworkField("sectionCenterScaleX", Number(event.target.value))}
+                className="w-24 rounded border border-white/20 bg-black/30 px-2 py-1 text-right text-xs text-white disabled:opacity-60"
+              />
+            </div>
+            <input
+              type="range"
+              value={artwork.sectionCenterScaleX}
+              min={BOUNDS.sectionCenterScaleX.min}
+              max={BOUNDS.sectionCenterScaleX.max}
+              step={BOUNDS.sectionCenterScaleX.step}
+              disabled={!canEdit}
+              onChange={(event) => setArtworkField("sectionCenterScaleX", Number(event.target.value))}
+              className="w-full"
+            />
+          </label>
+          <label className="mb-3 block">
+            <div className="mb-1 flex items-center justify-between text-sm">
+              <span>Right Section Width</span>
+              <input
+                type="number"
+                value={artwork.sectionRightScaleX}
+                min={BOUNDS.sectionRightScaleX.min}
+                max={BOUNDS.sectionRightScaleX.max}
+                step={BOUNDS.sectionRightScaleX.step}
+                disabled={!canEdit}
+                onChange={(event) => setArtworkField("sectionRightScaleX", Number(event.target.value))}
+                className="w-24 rounded border border-white/20 bg-black/30 px-2 py-1 text-right text-xs text-white disabled:opacity-60"
+              />
+            </div>
+            <input
+              type="range"
+              value={artwork.sectionRightScaleX}
+              min={BOUNDS.sectionRightScaleX.min}
+              max={BOUNDS.sectionRightScaleX.max}
+              step={BOUNDS.sectionRightScaleX.step}
+              disabled={!canEdit}
+              onChange={(event) => setArtworkField("sectionRightScaleX", Number(event.target.value))}
               className="w-full"
             />
           </label>

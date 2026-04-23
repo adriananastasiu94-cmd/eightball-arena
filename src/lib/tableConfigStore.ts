@@ -8,7 +8,10 @@ const DEFAULT_ARTWORK_ALIGNMENT = {
   scaleX: 1,
   scaleY: 1,
   offsetX: 0,
-  offsetY: 0
+  offsetY: 0,
+  sectionLeftScaleX: 1,
+  sectionCenterScaleX: 1,
+  sectionRightScaleX: 1
 } as const;
 const TABLE_NAME = "arena_table_config";
 
@@ -39,6 +42,9 @@ export type TableArtworkAlignment = {
   scaleY: number;
   offsetX: number;
   offsetY: number;
+  sectionLeftScaleX: number;
+  sectionCenterScaleX: number;
+  sectionRightScaleX: number;
 };
 
 export type ArenaTableEditorConfig = {
@@ -91,12 +97,30 @@ export function normalizeTableArtworkAlignment(input: unknown): TableArtworkAlig
   const scaleY = clamp(toFiniteNumber(src.scaleY) ?? legacyScale, 0.72, 1.35);
   const offsetX = clamp(toFiniteNumber(src.offsetX) ?? DEFAULT_ARTWORK_ALIGNMENT.offsetX, -220, 220);
   const offsetY = clamp(toFiniteNumber(src.offsetY) ?? DEFAULT_ARTWORK_ALIGNMENT.offsetY, -160, 160);
+  const sectionLeftScaleX = clamp(
+    toFiniteNumber(src.sectionLeftScaleX) ?? DEFAULT_ARTWORK_ALIGNMENT.sectionLeftScaleX,
+    0.65,
+    1.55
+  );
+  const sectionCenterScaleX = clamp(
+    toFiniteNumber(src.sectionCenterScaleX) ?? DEFAULT_ARTWORK_ALIGNMENT.sectionCenterScaleX,
+    0.65,
+    1.55
+  );
+  const sectionRightScaleX = clamp(
+    toFiniteNumber(src.sectionRightScaleX) ?? DEFAULT_ARTWORK_ALIGNMENT.sectionRightScaleX,
+    0.65,
+    1.55
+  );
   return {
     scale: round2(legacyScale),
     scaleX: round2(scaleX),
     scaleY: round2(scaleY),
     offsetX: round2(offsetX),
-    offsetY: round2(offsetY)
+    offsetY: round2(offsetY),
+    sectionLeftScaleX: round2(sectionLeftScaleX),
+    sectionCenterScaleX: round2(sectionCenterScaleX),
+    sectionRightScaleX: round2(sectionRightScaleX)
   };
 }
 
